@@ -1,0 +1,25 @@
+# build
+/bin/
+/dist/
+/tmp/
+*.log
+*.out
+
+# frontend
+web/node_modules/
+web/.svelte-kit/
+web/build/
+web/.env
+web/.env.*
+!web/.env.example
+
+# local config/secrets
+configs/config.yml
+.env
+compose.yml
+*.local
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/
