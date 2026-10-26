@@ -1,0 +1,16 @@
+.git
+.github
+bin
+dist
+tmp
+*.log
+.env
+compose.yml
+configs/config.yml
+web/node_modules
+web/.svelte-kit
+web/build
+web/.env
+web/.env.*
+!web/.env.example
+**/.DS_Store
