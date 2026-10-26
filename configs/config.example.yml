@@ -1,0 +1,33 @@
+server:
+  address: ":8080"
+  admin_token: "change-me"
+  read_timeout: 30s
+  write_timeout: 0s
+  idle_timeout: 120s
+  cors_origins: ["http://localhost:5173", "http://localhost:8080"]
+
+database:
+  url: "postgres://aigw:aigw@localhost:5432/aigw?sslmode=disable"
+  max_conns: 20
+  min_conns: 2
+  migrate: true
+
+security:
+  # Used to encrypt upstream provider API keys at rest. Change in production.
+  encryption_key: "change-this-to-a-long-random-secret"
+
+health:
+  # A background check runs every minute by default.
+  interval: 1m
+  timeout: 10s
+  concurrency: 8
+
+routing:
+  request_timeout: 120s
+  max_body_bytes: 33554432
+  default_retry_count: 3
+  default_retry_delay: 250ms
+  default_max_backoff: 5s
+
+web:
+  dir: "./web/build"
