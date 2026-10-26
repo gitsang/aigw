@@ -22,7 +22,7 @@
 
 <style>
   .shell { display: flex; min-height: 100vh; }
-  main { flex: 1; min-width: 0; padding: 26px 30px 50px; max-width: 1600px; }
+  main { flex: 1; min-width: 0; padding: 28px 32px 54px; max-width: 1600px; background: radial-gradient(circle at 100% 0%, #f0f7ff 0%, transparent 30%), #f5f8fc; }
   .loading { min-height: 100vh; display: grid; place-items: center; }
   @media (max-width: 800px) {
     .shell { flex-direction: column; }

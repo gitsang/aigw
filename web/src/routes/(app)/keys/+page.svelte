@@ -200,5 +200,5 @@
   .created p { margin: 0 0 14px; color: #64748b; font-size: 12.5px; }
   .key-box { display: flex; gap: 9px; align-items: center; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 9px; padding: 11px; }
   .key-box code { flex: 1; word-break: break-all; font-size: 12px; }
-  .usage { margin-top: 14px; background: #0f172a; color: #cbd5e1; padding: 13px; border-radius: 9px; font-size: 11px; line-height: 1.8; overflow-x: auto; }
+  .usage { margin-top: 14px; background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; padding: 13px; border-radius: 9px; font-size: 11px; line-height: 1.8; overflow-x: auto; }
 </style>
