@@ -21,6 +21,7 @@ RUN apk add --no-cache ca-certificates tzdata && addgroup -S aigw && adduser -S 
 WORKDIR /app
 COPY --from=go-builder /out/aigw /usr/local/bin/aigw
 COPY --from=web-builder /src/web/build /app/web/build
+COPY configs/config.example.yml /app/configs/config.yml
 COPY configs/config.example.yml /app/configs/config.example.yml
 USER aigw
 EXPOSE 8080
