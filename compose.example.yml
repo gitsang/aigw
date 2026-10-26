@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aigw
+      POSTGRES_PASSWORD: aigw
+      POSTGRES_DB: aigw
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aigw -d aigw"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    ports:
+      - "5432:5432"
+
+  aigw:
+    build:
+      context: .
+      dockerfile: Containerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIGW_CONFIG: /app/configs/config.yml
+      AIGW_SERVER_ADDRESS: ":8080"
+      AIGW_ADMIN_TOKEN: ${AIGW_ADMIN_TOKEN:-change-me}
+      AIGW_DATABASE_URL: postgres://aigw:aigw@postgres:5432/aigw?sslmode=disable
+      AIGW_ENCRYPTION_KEY: ${AIGW_ENCRYPTION_KEY:-change-this-to-a-long-random-secret}
+      AIGW_WEB_DIR: /app/web/build
+      AIGW_CORS_ORIGINS: ${AIGW_CORS_ORIGINS:-http://localhost:8080}
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+volumes:
+  pgdata:

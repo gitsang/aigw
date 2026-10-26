@@ -60,6 +60,8 @@ type RuntimeTarget struct {
 	UpstreamPath  string
 	Weight        int
 	Priority      int
+	InputPrice    float64
+	OutputPrice   float64
 }
 
 func New(ctx context.Context, databaseURL string, maxConns, minConns int32, secretCipher *crypto.Cipher) (*Store, error) {
@@ -573,7 +575,7 @@ FROM routing_targets t JOIN providers p ON p.id=t.provider_id
 WHERE t.id=$1 AND t.enabled=TRUE AND p.enabled=TRUE`, targetID).Scan(
 		&t.TargetID, &t.RuleID, &t.Role, &t.ProviderID, &t.ProviderName, &t.BaseURL,
 		&t.AuthType, &ct, &headers, &t.TimeoutMS, &t.UpstreamModel, &t.APIType,
-		&t.UpstreamPath, &t.Weight, &t.Priority)
+		&t.UpstreamPath, &t.Weight, &t.Priority, &t.InputPrice, &t.OutputPrice)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return t, ErrNotFound
 	}
