@@ -11,10 +11,22 @@
     ['responses', '/v1/responses'],
     ['messages', '/v1/messages']
   ];
+  const DEFAULT_PATHS = {
+    'chat.completions': '/v1/chat/completions',
+    responses: '/v1/responses',
+    messages: '/v1/messages'
+  };
+  const PROTOCOL_NAMES = {
+    'chat.completions': 'Chat Completions',
+    responses: 'Responses',
+    messages: 'Messages'
+  };
+  const defaultPath = (apiType) => DEFAULT_PATHS[apiType] || DEFAULT_PATHS['chat.completions'];
 
+  // upstream_path 为空表示使用协议默认路径，由后端补全。
   const blankTarget = (role = 'lb') => ({
     role, provider_id: '', upstream_model: '', api_type: 'chat.completions',
-    upstream_path: '/v1/chat/completions', weight: 50, priority: 0, enabled: true
+    upstream_path: '', weight: 50, priority: 0, enabled: true
   });
   const blankRule = () => ({
     name: '', virtual_model: '', api_types: APIS.map(([v]) => v), enabled: true,
@@ -64,8 +76,9 @@
       max_backoff_ms: rule.max_backoff_ms,
       targets: rule.targets.map((t) => ({
         id: t.id, role: t.role, provider_id: t.provider_id, upstream_model: t.upstream_model,
-        api_type: t.api_type, upstream_path: t.upstream_path, weight: t.weight,
-        priority: t.priority, enabled: t.enabled
+        api_type: t.api_type,
+        upstream_path: !t.upstream_path || t.upstream_path === defaultPath(t.api_type) ? '' : t.upstream_path,
+        weight: t.weight, priority: t.priority, enabled: t.enabled
       }))
     };
     modalOpen = true;
@@ -86,7 +99,8 @@
   }
 
   function syncPath(target) {
-    target.upstream_path = { 'chat.completions': '/v1/chat/completions', responses: '/v1/responses', messages: '/v1/messages' }[target.api_type];
+    // 切换协议时清空自定义 Path，回落到新协议的默认路径。
+    target.upstream_path = '';
   }
 
   function providerName(id) {
@@ -234,6 +248,10 @@
       <h3>Targets</h3>
       <div><button class="btn sm" type="button" on:click={() => addTarget('lb')}>+ LB</button><button class="btn sm" type="button" on:click={() => addTarget('fallback')}>+ Fallback</button></div>
     </div>
+    <p class="te-note">
+      <b>上游协议</b>决定请求/响应的 JSON 格式（Chat Completions / Responses / Messages）；
+      <b>Path</b>是实际 URL 后缀（Base URL + Path）。Path 留空时自动使用所选协议的默认路径，只有特殊供应商才需要覆盖。
+    </p>
     {#each form.targets as t, i}
       <div class="te-row">
         <div class="field"><label for={`t-role-${i}`}>角色</label>
@@ -248,12 +266,12 @@
           </select>
         </div>
         <div class="field"><label for={`t-model-${i}`}>Upstream model</label><input id={`t-model-${i}`} class="input mono" bind:value={t.upstream_model} placeholder="deepseek/deepseek-flash" /></div>
-        <div class="field"><label for={`t-api-${i}`}>上游接口</label>
-          <select id={`t-api-${i}`} class="select" bind:value={t.api_type} on:change={() => syncPath(t)}>
-            {#each APIS as [value, label]}<option value={value}>{label}</option>{/each}
+        <div class="field"><label for={`t-api-${i}`}>上游协议</label>
+          <select id={`t-api-${i}`} class="select" bind:value={t.api_type} on:change={() => syncPath(t)} title="决定请求/响应的 JSON 协议格式">
+            {#each APIS as [value]}<option value={value}>{PROTOCOL_NAMES[value]}</option>{/each}
           </select>
         </div>
-        <div class="field path"><label for={`t-path-${i}`}>Path</label><input id={`t-path-${i}`} class="input mono" bind:value={t.upstream_path} /></div>
+        <div class="field path"><label for={`t-path-${i}`}>Path <span class="optional">可选</span></label><input id={`t-path-${i}`} class="input mono" bind:value={t.upstream_path} placeholder={defaultPath(t.api_type)} title="实际 URL 后缀；留空使用协议默认路径" /></div>
         <div class="field weight"><label for={`t-weight-${i}`}>权重</label><input id={`t-weight-${i}`} class="input" type="number" min="1" bind:value={t.weight} /></div>
         <button class="btn sm danger-lite remove" type="button" on:click={() => removeTarget(i)} title="删除 target">✕</button>
       </div>
@@ -300,6 +318,9 @@
   .target-editor { border-top: 1px solid #e2e8f0; padding-top: 15px; }
   .te-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
   .te-head h3 { margin: 0; font-size: 13.5px; }
+  .te-note { margin: 0 0 12px; padding: 9px 12px; border-radius: 8px; background: #f1f7ff; border: 1px solid #dbeafe; color: #475569; font-size: 11.5px; line-height: 1.65; }
+  .te-note b { color: #1d4ed8; font-weight: 650; }
+  .optional { color: #94a3b8; font-weight: 400; font-size: 10.5px; }
   .te-head > div { display: flex; gap: 6px; }
   .te-row { display: grid; grid-template-columns: 90px 1fr 1.1fr 1fr 1.1fr 70px 32px; gap: 8px; align-items: end; padding: 10px; background: #f8fafc; border-radius: 9px; margin-bottom: 8px; }
   .remove { align-self: end; margin-bottom: 1px; padding: 8px; }

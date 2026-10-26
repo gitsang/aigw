@@ -151,6 +151,24 @@ curl http://localhost:8080/v1/messages \
 Streaming (`"stream": true`) is supported for all three entrypoints, including
 cross-protocol streaming conversion.
 
+## Upstream API type vs Path
+
+Each routing target has two related but independent fields:
+
+- **`api_type` — upstream protocol.** `chat.completions`, `responses` or `messages`.
+  It selects the JSON schema used to build the upstream request, parse the upstream
+  response and convert its SSE stream. It also controls protocol-specific headers
+  (for example `anthropic-version` for the Messages API).
+- **`upstream_path` — transport path.** Appended to the provider `base_url` to form
+  the final URL. It is only an optional override: when left empty the gateway uses
+  the protocol default (`/v1/chat/completions`, `/v1/responses`, `/v1/messages`).
+  Custom paths are needed for providers such as Azure OpenAI, Zhipu, or any
+  self-hosted gateway that exposes the same protocol under a different route.
+
+The management UI shows Path as optional and displays the protocol default as its
+placeholder. The periodic health probe uses the same path unless a provider-level
+`health_check_url` override is configured.
+
 ## Routing example
 
 The requested configuration — `deepseek-flash` load-balanced 50/50 over two
