@@ -6,29 +6,53 @@
   import Confirm from '$lib/components/Confirm.svelte';
   import Badge from '$lib/components/Badge.svelte';
 
+  const PROTOCOLS = [
+    ['chat.completions', 'Chat Completions', '/v1/chat/completions'],
+    ['responses', 'Responses', '/v1/responses'],
+    ['messages', 'Messages', '/v1/messages']
+  ];
   const blank = () => ({
     name: '', base_url: '', auth_type: 'bearer', api_key: '', headers: {},
     health_check_url: '', health_check_method: 'POST', timeout_ms: 120000,
     input_price_per_million: 0, output_price_per_million: 0, enabled: true
   });
+  const blankModel = () => ({ model_id: '', display_name: '', api_types: ['chat.completions'], path_overrides: {}, enabled: true });
 
   let providers = [];
+  let apiTypes = [];
   let loading = true;
   let error = '';
+  let apiTypesOpen = false;
+  let apiTypesDraft = [];
+  let savingApiTypes = false;
+
   let modalOpen = false;
   let editingId = null;
   let form = blank();
   let headersText = '{}';
   const headersPlaceholder = '{"HTTP-Referer": "https://example.com"}';
   let saving = false;
+
+  let modelsOpen = false;
+  let modelsProvider = null;
+  let models = [];
+  let modelsLoading = false;
+  let modelsError = '';
+  let modelFormOpen = false;
+  let modelEditingId = null;
+  let modelForm = blankModel();
+  let savingModel = false;
+  let discovering = false;
+
   let deleteTarget = null;
   let deleting = false;
+  let deleteModel = null;
 
   async function load() {
     loading = true;
     error = '';
     try {
-      providers = await api('/api/admin/providers');
+      [providers, apiTypes] = await Promise.all([api('/api/admin/providers'), api('/api/admin/api-types')]);
     } catch (e) {
       error = e.message;
     } finally {
@@ -91,6 +115,113 @@
     }
   }
 
+  // ---------- global API types ----------
+  function openApiTypes() {
+    apiTypesDraft = apiTypes.map((t) => ({ ...t, headers: t.headers || {} }));
+    apiTypesOpen = true;
+  }
+  async function saveApiTypes() {
+    savingApiTypes = true;
+    try {
+      apiTypes = await api('/api/admin/api-types', {
+        method: 'PUT',
+        body: JSON.stringify({ types: apiTypesDraft.map((t) => ({ name: t.name, path: t.path, enabled: t.enabled, headers: t.headers || {} })) })
+      });
+      toast('全局 API 配置已保存');
+      apiTypesOpen = false;
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      savingApiTypes = false;
+    }
+  }
+  function apiTypeLabel(name) { return PROTOCOLS.find(([v]) => v === name)?.[1] || name; }
+  function apiTypePath(name) { return apiTypes.find((t) => t.name === name)?.path || PROTOCOLS.find(([v]) => v === name)?.[2] || ''; }
+
+  // ---------- provider models ----------
+  async function openModels(p) {
+    modelsProvider = p;
+    modelsOpen = true;
+    modelFormOpen = false;
+    await loadModels();
+  }
+  async function loadModels() {
+    if (!modelsProvider) return;
+    modelsLoading = true;
+    modelsError = '';
+    try {
+      models = await api(`/api/admin/providers/${modelsProvider.id}/models`);
+    } catch (e) {
+      modelsError = e.message;
+    } finally {
+      modelsLoading = false;
+    }
+  }
+  async function discover() {
+    discovering = true;
+    try {
+      const res = await api(`/api/admin/providers/${modelsProvider.id}/models/discover`, { method: 'POST' });
+      models = res.models;
+      toast(`已同步 ${res.discovered} 个模型`);
+      await load();
+    } catch (e) {
+      toast(`同步失败：${e.message}`, 'error');
+    } finally {
+      discovering = false;
+    }
+  }
+  function openAddModel() {
+    modelEditingId = null;
+    modelForm = blankModel();
+    modelFormOpen = true;
+  }
+  function openEditModel(m) {
+    modelEditingId = m.id;
+    modelForm = {
+      model_id: m.model_id, display_name: m.display_name || m.model_id,
+      api_types: [...(m.api_types || [])],
+      path_overrides: { ...(m.path_overrides || {}) },
+      enabled: m.enabled
+    };
+    modelFormOpen = true;
+  }
+  function toggleModelProtocol(name) {
+    const has = modelForm.api_types.includes(name);
+    modelForm.api_types = has ? modelForm.api_types.filter((v) => v !== name) : [...modelForm.api_types, name];
+    if (has) delete modelForm.path_overrides[name];
+  }
+  async function saveModel() {
+    savingModel = true;
+    try {
+      const payload = { ...modelForm, display_name: modelForm.display_name || modelForm.model_id };
+      if (modelEditingId) {
+        await api(`/api/admin/providers/${modelsProvider.id}/models/${modelEditingId}`, { method: 'PUT', body: JSON.stringify(payload) });
+        toast('模型已更新');
+      } else {
+        await api(`/api/admin/providers/${modelsProvider.id}/models`, { method: 'POST', body: JSON.stringify(payload) });
+        toast('模型已添加');
+      }
+      modelFormOpen = false;
+      await loadModels();
+      await load();
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      savingModel = false;
+    }
+  }
+  async function removeModel() {
+    try {
+      await api(`/api/admin/providers/${modelsProvider.id}/models/${deleteModel.id}`, { method: 'DELETE' });
+      toast('模型已删除');
+      deleteModel = null;
+      await loadModels();
+      await load();
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
   const authLabel = { bearer: 'Bearer', 'x-api-key': 'x-api-key', none: '无认证' };
   onMount(load);
 </script>
@@ -100,12 +231,46 @@
 <header class="page-head">
   <div>
     <h1>Model Provider</h1>
-    <p>配置上游 LLM 服务、凭据、健康检查方式与 token 计费单价。API Key 加密存储。</p>
+    <p>配置上游服务与凭据，在 Provider 详情里维护模型清单。每个模型可覆盖支持的 API 类型和 Path。</p>
   </div>
   <button class="btn primary" on:click={openCreate}>+ 添加 Provider</button>
 </header>
 
 {#if error}<div class="alert">{error}</div>{/if}
+
+<section class="panel api-types">
+  <button class="global-head" type="button" on:click={() => (apiTypesOpen ? (apiTypesOpen = false) : openApiTypes())}>
+    <div>
+      <h2>全局 API 配置</h2>
+      <p>定义网关支持的上游协议及默认 Path。模型未覆盖时使用这里的配置。</p>
+    </div>
+    <span class="chev">{apiTypesOpen ? '收起' : '配置'}</span>
+  </button>
+  {#if apiTypesOpen}
+    <div class="api-type-table">
+      {#each apiTypesDraft as t}
+        <div class="api-type-row">
+          <label class="check"><input type="checkbox" bind:checked={t.enabled} /> 启用</label>
+          <div class="proto">
+            <b>{apiTypeLabel(t.name)}</b>
+            <span class="mono">{t.name}</span>
+          </div>
+          <div class="field"><label for={`gpath-${t.name}`}>默认 Path</label><input id={`gpath-${t.name}`} class="input mono" bind:value={t.path} /></div>
+        </div>
+      {/each}
+      <div class="api-type-actions">
+        <button class="btn ghost" type="button" on:click={() => (apiTypesOpen = false)}>取消</button>
+        <button class="btn primary" type="button" on:click={saveApiTypes} disabled={savingApiTypes}>{savingApiTypes ? '保存中…' : '保存全局配置'}</button>
+      </div>
+    </div>
+  {:else}
+    <div class="api-type-chips">
+      {#each apiTypes as t}
+        <span class="chip" class:disabled={!t.enabled}><b>{apiTypeLabel(t.name)}</b><span class="mono">{t.path}</span>{#if !t.enabled}<i>已停用</i>{/if}</span>
+      {/each}
+    </div>
+  {/if}
+</section>
 
 <section class="grid">
   {#if loading}
@@ -129,6 +294,7 @@
           <div><dt>单价 / 1M</dt><dd class="mono">${p.input_price_per_million} in · ${p.output_price_per_million} out</dd></div>
         </dl>
         <div class="actions">
+          <button class="btn sm primary-lite" on:click={() => openModels(p)}>模型管理</button>
           <button class="btn sm" on:click={() => openEdit(p)}>编辑</button>
           <button class="btn sm danger-lite" on:click={() => (deleteTarget = p)}>删除</button>
         </div>
@@ -153,7 +319,7 @@
     <div class="field"><label for="p-health-method">健康检查方法</label>
       <select id="p-health-method" class="select" bind:value={form.health_check_method}><option value="POST">POST</option><option value="GET">GET</option></select>
     </div>
-    <div class="field wide"><label for="p-health">健康检查 URL（可选，默认 POST 对应上游路径）</label><input id="p-health" class="input" bind:value={form.health_check_url} placeholder="/v1/chat/completions 或 /health" /><div class="hint">使用该 target 的 upstream model 发送 max_tokens=1 的最小请求；2xx 且无 error 字段即健康。</div></div>
+    <div class="field wide"><label for="p-health">健康检查 URL（可选，默认使用模型解析后的 Path）</label><input id="p-health" class="input" bind:value={form.health_check_url} placeholder="/v1/chat/completions 或 /health" /><div class="hint">使用 target 的 upstream model 发送 max_tokens=1 的最小请求；2xx 且无 error 字段即健康。</div></div>
     <div class="field"><label for="p-in">输入价格 / 1M tokens ($)</label><input id="p-in" class="input" type="number" step="0.000001" min="0" bind:value={form.input_price_per_million} /></div>
     <div class="field"><label for="p-out">输出价格 / 1M tokens ($)</label><input id="p-out" class="input" type="number" step="0.000001" min="0" bind:value={form.output_price_per_million} /></div>
     <div class="field wide"><label for="p-headers">额外 Headers (JSON)</label><textarea id="p-headers" class="textarea mono" bind:value={headersText} placeholder={headersPlaceholder}></textarea></div>
@@ -165,14 +331,103 @@
   </svelte:fragment>
 </Modal>
 
-<Confirm open={!!deleteTarget} title="删除 Provider" message={`确定删除 ${deleteTarget?.name || ''}？引用它的 routing target 会阻止删除。`} busy={deleting} onconfirm={remove} onclose={() => (deleteTarget = null)} />
+<Modal open={modelsOpen} title={`模型管理 · ${modelsProvider?.name || ''}`} wide onclose={() => (modelsOpen = false)}>
+  <div class="models-head">
+    <div>
+      <p class="models-hint">从 <code>/models</code> 同步模型，或手动添加。模型可覆盖支持的 API 类型和各自的 Path。</p>
+    </div>
+    <div class="models-actions">
+      <button class="btn sm" type="button" on:click={discover} disabled={discovering}>{discovering ? '同步中…' : '从 /models 同步'}</button>
+      <button class="btn sm primary" type="button" on:click={openAddModel}>+ 手动添加</button>
+    </div>
+  </div>
+  {#if modelsError}<div class="alert">{modelsError}</div>{/if}
+  {#if modelFormOpen}
+    <div class="model-form">
+      <div class="mf-grid">
+        <div class="field"><label for="m-id">Model ID（上游真实名称）</label><input id="m-id" class="input mono" bind:value={modelForm.model_id} placeholder="deepseek/deepseek-flash" /></div>
+        <div class="field"><label for="m-name">显示名称</label><input id="m-name" class="input" bind:value={modelForm.display_name} placeholder="可选" /></div>
+      </div>
+      <div class="proto-select">
+        <span class="pf-label">支持的 API 类型</span>
+        {#each PROTOCOLS as [value, label]}
+          <label class="check"><input type="checkbox" checked={modelForm.api_types.includes(value)} on:change={() => toggleModelProtocol(value)} /> <span>{label}</span></label>
+        {/each}
+      </div>
+      {#if modelForm.api_types.length}
+        <div class="path-overrides">
+          {#each modelForm.api_types as t}
+            <div class="field"><label for={`mo-${t}`}>{apiTypeLabel(t)} Path 覆盖</label><input id={`mo-${t}`} class="input mono" bind:value={modelForm.path_overrides[t]} placeholder={apiTypePath(t)} /></div>
+          {/each}
+        </div>
+      {/if}
+      <div class="mf-actions">
+        <button class="btn ghost sm" type="button" on:click={() => (modelFormOpen = false)}>取消</button>
+        <button class="btn primary sm" type="button" on:click={saveModel} disabled={savingModel || !modelForm.model_id}>{savingModel ? '保存中…' : (modelEditingId ? '保存修改' : '添加模型')}</button>
+      </div>
+    </div>
+  {/if}
+  <div class="model-list">
+    {#if modelsLoading}
+      <div class="empty"><div class="spinner" style="margin:auto"></div></div>
+    {:else if !models.length}
+      <div class="empty">还没有模型。点击「从 /models 同步」或手动添加。</div>
+    {:else}
+      {#each models as m (m.id)}
+        <div class="model-row">
+          <div class="model-main">
+            <div class="model-title">
+              <b class="mono">{m.model_id}</b>
+              {#if m.display_name && m.display_name !== m.model_id}<span class="muted">{m.display_name}</span>{/if}
+              <Badge tone={m.source === 'discovered' ? 'blue' : 'violet'}>{m.source === 'discovered' ? '自动同步' : '手动'}</Badge>
+              {#if !m.enabled}<Badge tone="neutral">停用</Badge>{/if}
+            </div>
+            <div class="model-meta">
+              <span>协议：{m.api_types?.length ? m.api_types.map(apiTypeLabel).join(' / ') : '跟随全局'}</span>
+              {#if m.path_overrides && Object.keys(m.path_overrides).length}
+                {#each Object.entries(m.path_overrides) as [k, v]}<span class="mono override">{apiTypeLabel(k)}: {v}</span>{/each}
+              {/if}
+            </div>
+          </div>
+          <div class="model-row-actions">
+            <button class="btn sm" on:click={() => openEditModel(m)}>编辑</button>
+            <button class="btn sm danger-lite" on:click={() => (deleteModel = m)}>删除</button>
+          </div>
+        </div>
+      {/each}
+    {/if}
+  </div>
+  <svelte:fragment slot="footer">
+    <button class="btn primary" on:click={() => (modelsOpen = false)}>完成</button>
+  </svelte:fragment>
+</Modal>
+
+<Confirm open={!!deleteTarget} title="删除 Provider" message={`确定删除 ${deleteTarget?.name || ''}？其下模型会一并删除，引用它的 routing target 会阻止删除。`} busy={deleting} onconfirm={remove} onclose={() => (deleteTarget = null)} />
+<Confirm open={!!deleteModel} title="删除模型" message={`确定删除模型 ${deleteModel?.model_id || ''}？引用它的 routing target 将失效。`} onconfirm={removeModel} onclose={() => (deleteModel = null)} />
 
 <style>
   .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; margin-bottom: 20px; }
   h1 { margin: 0; font-size: 23px; letter-spacing: -.03em; }
-  .page-head p { margin: 6px 0 0; color: #64748b; font-size: 13px; max-width: 650px; }
+  .page-head p { margin: 6px 0 0; color: #64748b; font-size: 13px; max-width: 720px; line-height: 1.55; }
   .alert { background: #fef2f2; color: #b91c1c; border-radius: 9px; padding: 11px 14px; margin-bottom: 15px; font-size: 13px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+
+  .api-types { padding: 16px 18px; margin-bottom: 16px; }
+  .global-head { display: flex; justify-content: space-between; align-items: center; width: 100%; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+  .global-head h2 { margin: 0; font-size: 14px; }
+  .global-head p { margin: 5px 0 0; color: #64748b; font-size: 12px; }
+  .chev { color: #2563eb; font-size: 12px; font-weight: 650; }
+  .api-type-chips { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 13px; }
+  .api-type-chips .chip { gap: 8px; padding: 5px 10px; background: #eff6ff; color: #1e40af; }
+  .api-type-chips .chip b { font-size: 11.5px; }
+  .api-type-chips .chip.disabled { background: #f1f5f9; color: #94a3b8; }
+  .api-type-chips .chip i { font-style: normal; font-size: 10px; }
+  .api-type-table { margin-top: 14px; border-top: 1px solid #eef2f7; padding-top: 13px; display: flex; flex-direction: column; gap: 9px; }
+  .api-type-row { display: grid; grid-template-columns: 90px 160px 1fr; gap: 14px; align-items: end; }
+  .proto b { display: block; font-size: 12.5px; }
+  .proto span { color: #94a3b8; font-size: 10.5px; }
+  .api-type-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
   .provider { padding: 17px; display: flex; flex-direction: column; }
   .top { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
   .name { font-weight: 700; font-size: 15px; }
@@ -182,11 +437,36 @@
   dd { margin: 0; font-size: 12px; font-weight: 600; }
   .muted { color: #94a3b8; font-weight: 400; }
   .ok { color: #047857; } .warn { color: #b45309; }
-  .actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
   .danger-lite { color: #b91c1c; }
   .danger-lite:hover { background: #fef2f2; border-color: #fecaca; }
+  .primary-lite { color: #1d4ed8; border-color: #bfdbfe; background: #eff6ff; }
   .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   .wide { grid-column: 1 / -1; }
   .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #334155; }
-  @media (max-width: 620px) { .form-grid { grid-template-columns: 1fr; } .wide { grid-column: auto; } }
+
+  .models-head { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; margin-bottom: 13px; }
+  .models-hint { margin: 0; color: #64748b; font-size: 12px; line-height: 1.6; }
+  .models-actions { display: flex; gap: 7px; flex-shrink: 0; }
+  .model-form { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 13px; margin-bottom: 13px; display: flex; flex-direction: column; gap: 11px; }
+  .mf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .proto-select { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
+  .pf-label { font-size: 12px; color: #475569; font-weight: 650; }
+  .path-overrides { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 9px; }
+  .mf-actions { display: flex; justify-content: flex-end; gap: 7px; }
+  .model-list { border: 1px solid #eef2f7; border-radius: 10px; overflow: hidden; }
+  .model-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 11px 13px; border-bottom: 1px solid #edf2f7; }
+  .model-row:last-child { border-bottom: 0; }
+  .model-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .model-title b { font-size: 12.5px; }
+  .model-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 5px; color: #64748b; font-size: 11px; }
+  .override { background: #f1f5f9; border-radius: 4px; padding: 1px 5px; }
+  .model-row-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; }
+  @media (max-width: 700px) {
+    .form-grid, .mf-grid, .path-overrides { grid-template-columns: 1fr; }
+    .api-type-row { grid-template-columns: 1fr; }
+    .models-head { flex-direction: column; }
+    .wide { grid-column: auto; }
+  }
 </style>

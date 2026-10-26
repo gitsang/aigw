@@ -113,7 +113,7 @@ func (a *App) Gateway(apiType string) http.HandlerFunc {
 
 		state := &attemptState{}
 		result := a.runner.Execute(ctx, rule, func(execCtx context.Context, target store.RouteTarget) router.AttemptOutcome {
-			return a.attempt(execCtx, req, target, state)
+			return a.attempt(execCtx, req, apiType, target, state)
 		})
 
 		logEntry := store.RequestLog{
@@ -191,8 +191,8 @@ func (a *App) Gateway(apiType string) http.HandlerFunc {
 	}
 }
 
-func (a *App) attempt(ctx context.Context, req translate.Request, target store.RouteTarget, state *attemptState) router.AttemptOutcome {
-	runtimeTarget, err := a.store.GetRuntimeTarget(ctx, target.ID)
+func (a *App) attempt(ctx context.Context, req translate.Request, inboundAPIType string, target store.RouteTarget, state *attemptState) router.AttemptOutcome {
+	runtimeTarget, err := a.store.ResolveTarget(ctx, target.ID, inboundAPIType)
 	if err != nil {
 		return router.AttemptOutcome{Retryable: true, StatusCode: http.StatusBadGateway, Err: fmt.Errorf("load target: %w", err)}
 	}

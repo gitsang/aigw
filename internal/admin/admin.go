@@ -2,6 +2,7 @@
 package admin
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gitsang/aigw/internal/store"
+	"github.com/gitsang/aigw/internal/upstream"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -31,6 +33,8 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Get("/session", h.session)
 		r.Get("/stats", h.stats)
 		r.Get("/logs", h.logs)
+		r.Get("/api-types", h.listAPITypes)
+		r.Put("/api-types", h.updateAPITypes)
 		r.Post("/health/check", h.healthCheck)
 		r.Route("/providers", func(r chi.Router) {
 			r.Get("/", h.listProviders)
@@ -39,6 +43,11 @@ func (h *Handler) Routes(r chi.Router) {
 				r.Get("/", h.getProvider)
 				r.Put("/", h.updateProvider)
 				r.Delete("/", h.deleteProvider)
+				r.Get("/models", h.listProviderModels)
+				r.Post("/models", h.createProviderModel)
+				r.Post("/models/discover", h.discoverProviderModels)
+				r.Put("/models/{modelID}", h.updateProviderModel)
+				r.Delete("/models/{modelID}", h.deleteProviderModel)
 			})
 		})
 		r.Route("/routes", func(r chi.Router) {
@@ -318,9 +327,106 @@ func (h *Handler) healthCheck(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"message": "health checks run in the background every minute"})
 }
 
+func (h *Handler) listAPITypes(w http.ResponseWriter, r *http.Request) {
+	items, err := h.store.ListAPITypes(r.Context())
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (h *Handler) updateAPITypes(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Types []store.APITypeInput `json:"types"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	items, err := h.store.UpdateAPITypes(r.Context(), in.Types)
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (h *Handler) listProviderModels(w http.ResponseWriter, r *http.Request) {
+	items, err := h.store.ListProviderModels(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (h *Handler) createProviderModel(w http.ResponseWriter, r *http.Request) {
+	var in store.ProviderModelInput
+	if !decode(w, r, &in) {
+		return
+	}
+	item, err := h.store.CreateProviderModel(r.Context(), chi.URLParam(r, "id"), in)
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (h *Handler) updateProviderModel(w http.ResponseWriter, r *http.Request) {
+	var in store.ProviderModelInput
+	if !decode(w, r, &in) {
+		return
+	}
+	item, err := h.store.UpdateProviderModel(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "modelID"), in)
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) deleteProviderModel(w http.ResponseWriter, r *http.Request) {
+	if err := h.store.DeleteProviderModel(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "modelID")); err != nil {
+		h.fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) discoverProviderModels(w http.ResponseWriter, r *http.Request) {
+	providerID := chi.URLParam(r, "id")
+	provider, apiKey, err := h.store.ProviderCredentials(r.Context(), providerID)
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	discovered, err := upstream.NewClient().ListModels(ctx, provider, apiKey, provider.Headers)
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	models := make([]store.DiscoveredModel, 0, len(discovered))
+	for _, m := range discovered {
+		models = append(models, store.DiscoveredModel{ID: m.ID, DisplayName: m.Name})
+	}
+	items, err := h.store.UpsertDiscoveredModels(r.Context(), providerID, models)
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"discovered": len(models), "models": items})
+}
+
 func (h *Handler) fail(w http.ResponseWriter, err error) {
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if errors.Is(err, store.ErrConflict) {
+		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
 	h.log.Error("admin request failed", "error", err)

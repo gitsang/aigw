@@ -100,6 +100,42 @@ CREATE INDEX IF NOT EXISTS idx_request_logs_api_type ON request_logs(api_type);
 CREATE INDEX IF NOT EXISTS idx_routing_targets_rule_id ON routing_targets(rule_id);
 CREATE INDEX IF NOT EXISTS idx_routing_targets_provider_id ON routing_targets(provider_id);
 
+
+-- ---------------------------------------------------- global API type catalog
+CREATE TABLE IF NOT EXISTS api_types (
+    name TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    headers JSONB NOT NULL DEFAULT '{}'::jsonb,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO api_types (name, path, sort_order) VALUES
+    ('chat.completions', '/v1/chat/completions', 10),
+    ('responses', '/v1/responses', 20),
+    ('messages', '/v1/messages', 30)
+ON CONFLICT (name) DO NOTHING;
+
+-- ------------------------------------------------------ provider model catalog
+CREATE TABLE IF NOT EXISTS provider_models (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider_id UUID NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+    model_id TEXT NOT NULL,
+    display_name TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'discovered')),
+    api_types TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
+    path_overrides JSONB NOT NULL DEFAULT '{}'::jsonb,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (provider_id, model_id)
+);
+CREATE INDEX IF NOT EXISTS idx_provider_models_provider_id ON provider_models(provider_id);
+
+ALTER TABLE routing_targets
+    ADD COLUMN IF NOT EXISTS provider_model_id UUID REFERENCES provider_models(id) ON DELETE SET NULL;
+
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = now();
@@ -117,4 +153,8 @@ FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 DROP TRIGGER IF EXISTS routing_targets_set_updated_at ON routing_targets;
 CREATE TRIGGER routing_targets_set_updated_at BEFORE UPDATE ON routing_targets
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS provider_models_set_updated_at ON provider_models;
+CREATE TRIGGER provider_models_set_updated_at BEFORE UPDATE ON provider_models
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();

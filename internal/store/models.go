@@ -48,19 +48,22 @@ type ProviderInput struct {
 }
 
 type RouteTarget struct {
-	ID              string        `json:"id"`
-	RuleID          string        `json:"rule_id"`
-	Role            string        `json:"role"`
-	ProviderID      string        `json:"provider_id"`
-	ProviderName    string        `json:"provider_name"`
-	ProviderBaseURL string        `json:"provider_base_url,omitempty"`
-	UpstreamModel   string        `json:"upstream_model"`
-	APIType         string        `json:"api_type"`
-	UpstreamPath    string        `json:"upstream_path"`
-	Weight          int           `json:"weight"`
-	Priority        int           `json:"priority"`
-	Enabled         bool          `json:"enabled"`
-	Health          *TargetHealth `json:"health,omitempty"`
+	ID                string            `json:"id"`
+	RuleID            string            `json:"rule_id"`
+	Role              string            `json:"role"`
+	ProviderID        string            `json:"provider_id"`
+	ProviderName      string            `json:"provider_name"`
+	ProviderBaseURL   string            `json:"provider_base_url,omitempty"`
+	ProviderModelID   string            `json:"provider_model_id,omitempty"`
+	UpstreamModel     string            `json:"upstream_model"`
+	APIType           string            `json:"api_type"`
+	UpstreamPath      string            `json:"upstream_path"`
+	SupportedAPITypes []string          `json:"supported_api_types,omitempty"`
+	PathOverrides     map[string]string `json:"path_overrides,omitempty"`
+	Weight            int               `json:"weight"`
+	Priority          int               `json:"priority"`
+	Enabled           bool              `json:"enabled"`
+	Health            *TargetHealth     `json:"health,omitempty"`
 }
 
 type TargetHealth struct {
@@ -101,15 +104,62 @@ type RoutingRuleInput struct {
 }
 
 type RouteTargetInput struct {
-	ID            string `json:"id,omitempty"`
-	Role          string `json:"role"`
-	ProviderID    string `json:"provider_id"`
-	UpstreamModel string `json:"upstream_model"`
-	APIType       string `json:"api_type"`
-	UpstreamPath  string `json:"upstream_path"`
-	Weight        int    `json:"weight"`
-	Priority      int    `json:"priority"`
-	Enabled       *bool  `json:"enabled"`
+	ID              string `json:"id,omitempty"`
+	Role            string `json:"role"`
+	ProviderID      string `json:"provider_id"`
+	ProviderModelID string `json:"provider_model_id,omitempty"`
+	UpstreamModel   string `json:"upstream_model"`
+	APIType         string `json:"api_type"`
+	UpstreamPath    string `json:"upstream_path"`
+	Weight          int    `json:"weight"`
+	Priority        int    `json:"priority"`
+	Enabled         *bool  `json:"enabled"`
+}
+
+// APITypeDef is the global default for one upstream protocol.
+type APITypeDef struct {
+	Name      string            `json:"name"`
+	Path      string            `json:"path"`
+	Enabled   bool              `json:"enabled"`
+	Headers   map[string]string `json:"headers"`
+	SortOrder int               `json:"sort_order"`
+	UpdatedAt time.Time         `json:"updated_at"`
+}
+
+type APITypeInput struct {
+	Name    string            `json:"name"`
+	Path    string            `json:"path"`
+	Enabled *bool             `json:"enabled"`
+	Headers map[string]string `json:"headers"`
+}
+
+// ProviderModel is one upstream model exposed by a provider.
+type ProviderModel struct {
+	ID            string            `json:"id"`
+	ProviderID    string            `json:"provider_id"`
+	ModelID       string            `json:"model_id"`
+	DisplayName   string            `json:"display_name"`
+	Source        string            `json:"source"`
+	APITypes      []string          `json:"api_types"`
+	PathOverrides map[string]string `json:"path_overrides"`
+	Enabled       bool              `json:"enabled"`
+	CreatedAt     time.Time         `json:"created_at"`
+	UpdatedAt     time.Time         `json:"updated_at"`
+}
+
+type ProviderModelInput struct {
+	ModelID       string            `json:"model_id"`
+	DisplayName   string            `json:"display_name"`
+	APITypes      []string          `json:"api_types"`
+	PathOverrides map[string]string `json:"path_overrides"`
+	Enabled       *bool             `json:"enabled"`
+}
+
+// APITypeResolution is the effective protocol/path for one model or target.
+type APITypeResolution struct {
+	APIType string `json:"api_type"`
+	Path    string `json:"path"`
+	Model   string `json:"model,omitempty"`
 }
 
 type APIKey struct {

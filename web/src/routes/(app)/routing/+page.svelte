@@ -7,26 +7,20 @@
   import Badge from '$lib/components/Badge.svelte';
 
   const APIS = [
-    ['chat.completions', '/v1/chat/completions'],
-    ['responses', '/v1/responses'],
-    ['messages', '/v1/messages']
+    ['chat.completions', 'Chat Completions'],
+    ['responses', 'Responses'],
+    ['messages', 'Messages']
   ];
-  const DEFAULT_PATHS = {
-    'chat.completions': '/v1/chat/completions',
-    responses: '/v1/responses',
-    messages: '/v1/messages'
-  };
   const PROTOCOL_NAMES = {
     'chat.completions': 'Chat Completions',
     responses: 'Responses',
     messages: 'Messages'
   };
-  const defaultPath = (apiType) => DEFAULT_PATHS[apiType] || DEFAULT_PATHS['chat.completions'];
+  const apiLabel = (v) => PROTOCOL_NAMES[v] || v;
 
-  // upstream_path 为空表示使用协议默认路径，由后端补全。
   const blankTarget = (role = 'lb') => ({
-    role, provider_id: '', upstream_model: '', api_type: 'chat.completions',
-    upstream_path: '', weight: 50, priority: 0, enabled: true
+    role, provider_id: '', provider_model_id: '', upstream_model: '',
+    weight: 50, priority: 0, enabled: true
   });
   const blankRule = () => ({
     name: '', virtual_model: '', api_types: APIS.map(([v]) => v), enabled: true,
@@ -36,6 +30,7 @@
 
   let rules = [];
   let providers = [];
+  let providerModels = {};
   let loading = true;
   let error = '';
   let modalOpen = false;
@@ -57,17 +52,22 @@
     }
   }
 
-  function openCreate() {
+  async function openCreate() {
     editingId = null;
     form = blankRule();
+    for (const p of providers) await ensureModels(p.id);
     if (providers.length) {
       form.targets[0].provider_id = providers[0].id;
-      if (providers[1]) form.targets[1].provider_id = providers[1].id;
+      form.targets[0].provider_model_id = providerModels[providers[0].id]?.[0]?.id || '';
+      if (providers[1]) {
+        form.targets[1].provider_id = providers[1].id;
+        form.targets[1].provider_model_id = providerModels[providers[1].id]?.[0]?.id || '';
+      }
     }
     modalOpen = true;
   }
 
-  function openEdit(rule) {
+  async function openEdit(rule) {
     editingId = rule.id;
     form = {
       name: rule.name, virtual_model: rule.virtual_model, api_types: [...rule.api_types],
@@ -75,17 +75,24 @@
       fallback_policy: rule.fallback_policy, retry_delay_ms: rule.retry_delay_ms,
       max_backoff_ms: rule.max_backoff_ms,
       targets: rule.targets.map((t) => ({
-        id: t.id, role: t.role, provider_id: t.provider_id, upstream_model: t.upstream_model,
-        api_type: t.api_type,
-        upstream_path: !t.upstream_path || t.upstream_path === defaultPath(t.api_type) ? '' : t.upstream_path,
+        id: t.id, role: t.role, provider_id: t.provider_id,
+        provider_model_id: t.provider_model_id || '',
+        upstream_model: t.upstream_model,
         weight: t.weight, priority: t.priority, enabled: t.enabled
       }))
     };
+    for (const t of form.targets) if (t.provider_id) await ensureModels(t.provider_id);
     modalOpen = true;
   }
 
-  function addTarget(role) {
-    form.targets = [...form.targets, blankTarget(role)];
+  async function addTarget(role) {
+    const t = blankTarget(role);
+    if (providers.length) {
+      t.provider_id = providers[0].id;
+      const list = await ensureModels(t.provider_id);
+      t.provider_model_id = list[0]?.id || '';
+    }
+    form.targets = [...form.targets, t];
   }
 
   function removeTarget(index) {
@@ -98,19 +105,48 @@
       : [...form.api_types, value];
   }
 
-  function syncPath(target) {
-    // 切换协议时清空自定义 Path，回落到新协议的默认路径。
-    target.upstream_path = '';
+  async function ensureModels(providerID) {
+    if (!providerID) return [];
+    if (!providerModels[providerID]) {
+      try {
+        providerModels[providerID] = await api(`/api/admin/providers/${providerID}/models`);
+        providerModels = providerModels;
+      } catch (e) {
+        providerModels[providerID] = [];
+        providerModels = providerModels;
+        toast(`加载模型失败：${e.message}`, 'error');
+      }
+    }
+    return providerModels[providerID];
   }
 
-  function providerName(id) {
-    return providers.find((p) => p.id === id)?.name || '未知 provider';
+  async function onProviderChange(target) {
+    target.provider_model_id = '';
+    target.upstream_model = '';
+    const list = await ensureModels(target.provider_id);
+    if (list.length) target.provider_model_id = list[0].id;
+  }
+
+  function modelsFor(providerID) { return providerModels[providerID] || []; }
+  function modelOf(target) {
+    return modelsFor(target.provider_id).find((m) => m.id === target.provider_model_id);
+  }
+  function targetProtocols(target) {
+    const m = modelOf(target);
+    return m?.api_types?.length ? m.api_types.map(apiLabel).join(' / ') : '跟随全局默认';
+  }
+  function targetPathHint(target) {
+    const m = modelOf(target);
+    const overrides = m?.path_overrides || {};
+    const keys = Object.keys(overrides);
+    if (keys.length) return keys.map((k) => `${apiLabel(k)} → ${overrides[k]}`).join('  ');
+    return '使用全局默认 Path';
   }
 
   async function save() {
     if (!form.virtual_model.trim()) return toast('请填写对外模型名', 'error');
     if (!form.targets.length) return toast('至少配置一个 target', 'error');
-    if (form.targets.some((t) => !t.provider_id || !t.upstream_model.trim())) return toast('每个 target 都需要 provider 和 upstream model', 'error');
+    if (form.targets.some((t) => !t.provider_id || !t.provider_model_id)) return toast('每个 target 都需要 provider 和模型', 'error');
     saving = true;
     try {
       const payload = { ...form, targets: form.targets.map((t) => ({ ...t })) };
@@ -192,7 +228,10 @@
                 <b>{t.provider_name}</b>
                 <span class="mono">{t.upstream_model}</span>
               </div>
-              <div class="mono api-cell">{t.api_type}<div class="sub">{t.upstream_path}</div></div>
+              <div class="mono api-cell">
+                {t.supported_api_types?.length ? t.supported_api_types.map(apiLabel).join(' / ') : apiLabel(t.api_type)}
+                <div class="sub">{t.path_overrides && Object.keys(t.path_overrides).length ? Object.entries(t.path_overrides).map(([k,v]) => `${apiLabel(k)} → ${v}`).join('  ') : '全局默认 Path'}</div>
+              </div>
               <div class="mono weight">{t.role === 'fallback' ? '—' : `${t.weight}`}</div>
               <div>
                 {#if t.role === 'fallback'}
@@ -249,8 +288,8 @@
       <div><button class="btn sm" type="button" on:click={() => addTarget('lb')}>+ LB</button><button class="btn sm" type="button" on:click={() => addTarget('fallback')}>+ Fallback</button></div>
     </div>
     <p class="te-note">
-      <b>上游协议</b>决定请求/响应的 JSON 格式（Chat Completions / Responses / Messages）；
-      <b>Path</b>是实际 URL 后缀（Base URL + Path）。Path 留空时自动使用所选协议的默认路径，只有特殊供应商才需要覆盖。
+      这里只选择 <b>Provider + 模型</b>。模型支持的 API 类型和 Path 在 Provider 的「模型管理」中配置；
+      未配置时使用「全局 API 配置」的默认值。请求会优先使用与入口相同的协议，否则使用模型支持的第一个协议自动转换。
     </p>
     {#each form.targets as t, i}
       <div class="te-row">
@@ -260,18 +299,24 @@
           </select>
         </div>
         <div class="field"><label for={`t-provider-${i}`}>Provider</label>
-          <select id={`t-provider-${i}`} class="select" bind:value={t.provider_id}>
+          <select id={`t-provider-${i}`} class="select" bind:value={t.provider_id} on:change={() => onProviderChange(t)}>
             <option value="">选择…</option>
             {#each providers as p}<option value={p.id}>{p.name}</option>{/each}
           </select>
         </div>
-        <div class="field"><label for={`t-model-${i}`}>Upstream model</label><input id={`t-model-${i}`} class="input mono" bind:value={t.upstream_model} placeholder="deepseek/deepseek-flash" /></div>
-        <div class="field"><label for={`t-api-${i}`}>上游协议</label>
-          <select id={`t-api-${i}`} class="select" bind:value={t.api_type} on:change={() => syncPath(t)} title="决定请求/响应的 JSON 协议格式">
-            {#each APIS as [value]}<option value={value}>{PROTOCOL_NAMES[value]}</option>{/each}
+        <div class="field"><label for={`t-model-${i}`}>模型</label>
+          <select id={`t-model-${i}`} class="select" bind:value={t.provider_model_id}>
+            <option value="">选择模型…</option>
+            {#each modelsFor(t.provider_id) as m}<option value={m.id}>{m.model_id}</option>{/each}
           </select>
         </div>
-        <div class="field path"><label for={`t-path-${i}`}>Path <span class="optional">可选</span></label><input id={`t-path-${i}`} class="input mono" bind:value={t.upstream_path} placeholder={defaultPath(t.api_type)} title="实际 URL 后缀；留空使用协议默认路径" /></div>
+        <div class="target-summary">
+          <div class="ts-row"><span class="ts-label">协议</span><span>{targetProtocols(t)}</span></div>
+          <div class="ts-row"><span class="ts-label">Path</span><span class="mono">{targetPathHint(t)}</span></div>
+          {#if t.provider_id && !modelsFor(t.provider_id).length}
+            <div class="ts-warn">该 Provider 还没有模型，请先到 Provider 详情添加。</div>
+          {/if}
+        </div>
         <div class="field weight"><label for={`t-weight-${i}`}>权重</label><input id={`t-weight-${i}`} class="input" type="number" min="1" bind:value={t.weight} /></div>
         <button class="btn sm danger-lite remove" type="button" on:click={() => removeTarget(i)} title="删除 target">✕</button>
       </div>
@@ -320,9 +365,13 @@
   .te-head h3 { margin: 0; font-size: 13.5px; }
   .te-note { margin: 0 0 12px; padding: 9px 12px; border-radius: 8px; background: #f1f7ff; border: 1px solid #dbeafe; color: #475569; font-size: 11.5px; line-height: 1.65; }
   .te-note b { color: #1d4ed8; font-weight: 650; }
-  .optional { color: #94a3b8; font-weight: 400; font-size: 10.5px; }
   .te-head > div { display: flex; gap: 6px; }
-  .te-row { display: grid; grid-template-columns: 90px 1fr 1.1fr 1fr 1.1fr 70px 32px; gap: 8px; align-items: end; padding: 10px; background: #f8fafc; border-radius: 9px; margin-bottom: 8px; }
+  .te-row { display: grid; grid-template-columns: 90px 1fr 1.25fr 1.35fr 70px 32px; gap: 8px; align-items: end; padding: 10px; background: #f8fafc; border-radius: 9px; margin-bottom: 8px; }
+  .target-summary { min-width: 0; padding-bottom: 8px; display: flex; flex-direction: column; gap: 3px; }
+  .ts-row { display: flex; gap: 6px; font-size: 11px; color: #475569; line-height: 1.4; }
+  .ts-label { color: #94a3b8; flex: 0 0 30px; }
+  .ts-row .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ts-warn { color: #b45309; font-size: 10.5px; }
   .remove { align-self: end; margin-bottom: 1px; padding: 8px; }
   @media (max-width: 900px) {
     .te-row { grid-template-columns: 1fr 1fr; }

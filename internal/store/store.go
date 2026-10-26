@@ -20,7 +20,10 @@ import (
 //go:embed schema.sql
 var schemaFS embed.FS
 
-var ErrNotFound = errors.New("not found")
+var (
+	ErrNotFound = errors.New("not found")
+	ErrConflict = errors.New("conflict")
+)
 
 type Store struct {
 	pool   *pgxpool.Pool
@@ -360,12 +363,15 @@ FROM routing_rules WHERE virtual_model=$1 AND enabled=TRUE`, model)
 
 func (s *Store) loadTargets(ctx context.Context, ruleID string) ([]RouteTarget, error) {
 	rows, err := s.pool.Query(ctx, `
-SELECT t.id, t.rule_id, t.role, t.provider_id, p.name, p.base_url, t.upstream_model,
+SELECT t.id, t.rule_id, t.role, t.provider_id, p.name, p.base_url,
+       COALESCE(t.provider_model_id::text,''), COALESCE(pm.model_id,''), t.upstream_model,
        t.api_type, t.upstream_path, t.weight, t.priority, t.enabled,
+       COALESCE(pm.api_types,'{}'::text[]), COALESCE(pm.path_overrides,'{}'::jsonb),
        COALESCE(h.healthy, TRUE), h.checked_at, COALESCE(h.latency_ms,0),
        COALESCE(h.status_code,0), COALESCE(h.error,'')
 FROM routing_targets t
 JOIN providers p ON p.id=t.provider_id
+LEFT JOIN provider_models pm ON pm.id=t.provider_model_id
 LEFT JOIN target_health h ON h.target_id=t.id
 WHERE t.rule_id=$1
 ORDER BY t.role DESC, t.priority DESC, t.created_at ASC`, ruleID)
@@ -387,11 +393,16 @@ ORDER BY t.role DESC, t.priority DESC, t.created_at ASC`, ruleID)
 func scanTarget(row rowScanner) (RouteTarget, error) {
 	var t RouteTarget
 	h := TargetHealth{}
+	var overrides []byte
 	err := row.Scan(&t.ID, &t.RuleID, &t.Role, &t.ProviderID, &t.ProviderName, &t.ProviderBaseURL,
-		&t.UpstreamModel, &t.APIType, &t.UpstreamPath, &t.Weight, &t.Priority, &t.Enabled,
+		&t.ProviderModelID, &t.UpstreamModel, &t.UpstreamModel, &t.APIType, &t.UpstreamPath,
+		&t.Weight, &t.Priority, &t.Enabled, &t.SupportedAPITypes, &overrides,
 		&h.Healthy, &h.CheckedAt, &h.LatencyMS, &h.StatusCode, &h.Error)
 	if err != nil {
 		return t, err
+	}
+	if len(overrides) > 0 {
+		_ = json.Unmarshal(overrides, &t.PathOverrides)
 	}
 	t.Health = &h
 	return t, nil
@@ -462,9 +473,27 @@ func insertTargets(ctx context.Context, tx pgx.Tx, ruleID string, targets []Rout
 		if t.Role == RoleFallback {
 			role = RoleFallback
 		}
+		upstreamModel := strings.TrimSpace(t.UpstreamModel)
 		apiType := normalizeAPIType(t.APIType)
 		path := strings.TrimSpace(t.UpstreamPath)
-		if path == "" {
+		var modelID *string
+		if strings.TrimSpace(t.ProviderModelID) != "" {
+			// Catalog-backed target: model metadata owns protocol/path resolution.
+			var owner, modelName string
+			if err := tx.QueryRow(ctx, `
+SELECT provider_id::text, model_id FROM provider_models WHERE id=$1`,
+				t.ProviderModelID).Scan(&owner, &modelName); err != nil {
+				return fmt.Errorf("load provider model: %w", err)
+			}
+			if owner != t.ProviderID {
+				return fmt.Errorf("provider model does not belong to selected provider")
+			}
+			id := t.ProviderModelID
+			modelID = &id
+			upstreamModel = modelName
+			path = ""
+		}
+		if path == "" && modelID == nil {
 			path = DefaultPath(apiType)
 		}
 		weight := t.Weight
@@ -472,10 +501,10 @@ func insertTargets(ctx context.Context, tx pgx.Tx, ruleID string, targets []Rout
 			weight = 100
 		}
 		if _, err := tx.Exec(ctx, `
-INSERT INTO routing_targets (rule_id, role, provider_id, upstream_model, api_type,
+INSERT INTO routing_targets (rule_id, role, provider_id, provider_model_id, upstream_model, api_type,
 upstream_path, weight, priority, enabled)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-			ruleID, role, t.ProviderID, t.UpstreamModel, apiType, path, weight, t.Priority,
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+			ruleID, role, t.ProviderID, modelID, upstreamModel, apiType, path, weight, t.Priority,
 			boolOr(t.Enabled, true)); err != nil {
 			return err
 		}
@@ -594,27 +623,49 @@ func (s *Store) ListHealthProbeTargets(ctx context.Context) ([]HealthProbeTarget
 	rows, err := s.pool.Query(ctx, `
 SELECT t.id, p.id, p.name, p.base_url, p.auth_type, p.api_key_ciphertext, p.headers,
        p.health_check_url, p.health_check_method, p.timeout_ms, t.upstream_model,
-       t.api_type, t.upstream_path
-FROM routing_targets t JOIN providers p ON p.id=t.provider_id
-WHERE t.enabled=TRUE AND p.enabled=TRUE`)
+       t.api_type, t.upstream_path, COALESCE(pm.model_id,''),
+       COALESCE(pm.api_types,'{}'::text[]), COALESCE(pm.path_overrides,'{}'::jsonb)
+FROM routing_targets t
+JOIN providers p ON p.id=t.provider_id
+LEFT JOIN provider_models pm ON pm.id=t.provider_model_id
+WHERE t.enabled=TRUE AND p.enabled=TRUE AND (t.provider_model_id IS NULL OR pm.enabled=TRUE)`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	defaults, enabledDefaults, err := s.apiTypeDefaults(ctx)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]HealthProbeTarget, 0)
 	for rows.Next() {
 		var t HealthProbeTarget
 		var ct string
 		var headers []byte
+		var modelID string
+		var modelTypes []string
+		var overridesRaw []byte
 		if err := rows.Scan(&t.TargetID, &t.ProviderID, &t.ProviderName, &t.BaseURL, &t.AuthType,
 			&ct, &headers, &t.HealthCheckURL, &t.HealthCheckMethod, &t.TimeoutMS,
-			&t.UpstreamModel, &t.APIType, &t.UpstreamPath); err != nil {
+			&t.UpstreamModel, &t.APIType, &t.UpstreamPath, &modelID, &modelTypes, &overridesRaw); err != nil {
 			return nil, err
 		}
 		if ct != "" {
 			t.APIKey, _ = s.cipher.Decrypt(ct)
 		}
 		t.Headers = decodeHeaders(headers)
+		if modelID != "" {
+			overrides := map[string]string{}
+			if len(overridesRaw) > 0 {
+				_ = json.Unmarshal(overridesRaw, &overrides)
+			}
+			t.UpstreamModel = modelID
+			t.APIType = ChooseAPIType(modelTypes, enabledDefaults, "")
+			t.UpstreamPath = ResolvePath(overrides, defaults, t.APIType)
+		} else {
+			t.APIType = normalizeAPIType(t.APIType)
+			t.UpstreamPath = ResolvePath(nil, defaults, t.APIType)
+		}
 		out = append(out, t)
 	}
 	return out, rows.Err()

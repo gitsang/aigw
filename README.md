@@ -151,23 +151,32 @@ curl http://localhost:8080/v1/messages \
 Streaming (`"stream": true`) is supported for all three entrypoints, including
 cross-protocol streaming conversion.
 
-## Upstream API type vs Path
+## Global API types → provider models → routing
 
-Each routing target has two related but independent fields:
+Upstream protocol configuration now lives in three layers instead of being repeated
+on every routing target:
 
-- **`api_type` — upstream protocol.** `chat.completions`, `responses` or `messages`.
-  It selects the JSON schema used to build the upstream request, parse the upstream
-  response and convert its SSE stream. It also controls protocol-specific headers
-  (for example `anthropic-version` for the Messages API).
-- **`upstream_path` — transport path.** Appended to the provider `base_url` to form
-  the final URL. It is only an optional override: when left empty the gateway uses
-  the protocol default (`/v1/chat/completions`, `/v1/responses`, `/v1/messages`).
-  Custom paths are needed for providers such as Azure OpenAI, Zhipu, or any
-  self-hosted gateway that exposes the same protocol under a different route.
+1. **Global API types** — which protocols the gateway exposes and their default
+   paths (`chat.completions` → `/v1/chat/completions`, `responses` → `/v1/responses`,
+   `messages` → `/v1/messages`). Editable from the Provider page.
+2. **Provider models** — each provider keeps a model catalog. Models can be pulled
+   from the provider's OpenAI-compatible `GET /models` endpoint or added manually.
+   Every model can declare the API types it supports and optionally override the
+   path per API type. A model with no API types inherits the enabled global types.
+3. **Routing targets** — a target now only picks a provider + one of its models
+   (plus weight/role). Protocol and path are resolved automatically.
 
-The management UI shows Path as optional and displays the protocol default as its
-placeholder. The periodic health probe uses the same path unless a provider-level
-`health_check_url` override is configured.
+Resolution rules for an inbound request:
+
+- If the model supports the inbound protocol, that protocol/path is used directly.
+- Otherwise the model's first supported protocol is used and the request/response
+  is translated.
+- A per-model path override wins over the global API type default.
+- Health probes use the same resolved protocol and path (or the provider-level
+  `health_check_url` override when set).
+
+This means routing rules no longer need to duplicate `api_type` / `upstream_path`
+for every provider and model.
 
 ## Routing example
 
@@ -175,9 +184,9 @@ The requested configuration — `deepseek-flash` load-balanced 50/50 over two
 providers' `/v1/chat/completions` with a provider3 fallback — maps to:
 
 - Rule `virtual_model: deepseek-flash`
-- LB target A: provider1, upstream model `deepseek/deepseek-flash`, weight 50
-- LB target B: provider2, upstream model `deepseek/deepseek-flash`, weight 50
-- Fallback target: provider3, upstream model `deepseek/deepseek-v4-flash`
+- LB target A: provider1 → model `deepseek/deepseek-flash`, weight 50
+- LB target B: provider2 → model `deepseek/deepseek-flash`, weight 50
+- Fallback target: provider3 → model `deepseek/deepseek-v4-flash`
 
 Behavior:
 
@@ -198,10 +207,17 @@ All admin endpoints require `Authorization: Bearer <admin_token>`:
 | Method | Path | Description |
 | --- | --- | --- |
 | GET | `/api/admin/session` | token check |
+| GET | `/api/admin/api-types` | list global API type defaults |
+| PUT | `/api/admin/api-types` | update global API type defaults |
 | GET | `/api/admin/providers` | list providers |
 | POST | `/api/admin/providers` | create provider |
 | PUT | `/api/admin/providers/{id}` | update provider |
 | DELETE | `/api/admin/providers/{id}` | delete provider |
+| GET | `/api/admin/providers/{id}/models` | list provider models |
+| POST | `/api/admin/providers/{id}/models` | add a model manually |
+| POST | `/api/admin/providers/{id}/models/discover` | sync models from `/models` |
+| PUT | `/api/admin/providers/{id}/models/{modelID}` | update model protocols/paths |
+| DELETE | `/api/admin/providers/{id}/models/{modelID}` | delete model |
 | GET | `/api/admin/routes` | list routing rules |
 | POST | `/api/admin/routes` | create rule |
 | PUT | `/api/admin/routes/{id}` | update rule |
