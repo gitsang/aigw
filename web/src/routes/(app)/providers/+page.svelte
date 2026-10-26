@@ -19,6 +19,7 @@
   let editingId = null;
   let form = blank();
   let headersText = '{}';
+  const headersPlaceholder = '{"HTTP-Referer": "https://example.com"}';
   let saving = false;
   let deleteTarget = null;
   let deleting = false;
