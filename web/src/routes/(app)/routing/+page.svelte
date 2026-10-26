@@ -207,7 +207,7 @@
   <div class="form-grid">
     <div class="field"><label for="r-name">规则名称</label><input id="r-name" class="input" bind:value={form.name} placeholder="deepseek-flash-lb" /></div>
     <div class="field"><label for="r-model">对外模型名 (virtual model)</label><input id="r-model" class="input mono" bind:value={form.virtual_model} placeholder="deepseek-flash" /></div>
-    <div class="field wide"><label>支持的入口 API</label>
+    <div class="field wide"><span class="label">支持的入口 API</span>
       <div class="check-row">
         {#each APIS as [value, label]}
           <label class="check"><input type="checkbox" checked={form.api_types.includes(value)} on:change={() => toggleApi(value)} /><span class="mono">{label}</span></label>
@@ -236,25 +236,25 @@
     </div>
     {#each form.targets as t, i}
       <div class="te-row">
-        <div class="field"><label>角色</label>
-          <select class="select" bind:value={t.role}>
+        <div class="field"><label for={`t-role-${i}`}>角色</label>
+          <select id={`t-role-${i}`} class="select" bind:value={t.role}>
             <option value="lb">LB</option><option value="fallback">Fallback</option>
           </select>
         </div>
-        <div class="field"><label>Provider</label>
-          <select class="select" bind:value={t.provider_id}>
+        <div class="field"><label for={`t-provider-${i}`}>Provider</label>
+          <select id={`t-provider-${i}`} class="select" bind:value={t.provider_id}>
             <option value="">选择…</option>
             {#each providers as p}<option value={p.id}>{p.name}</option>{/each}
           </select>
         </div>
-        <div class="field"><label>Upstream model</label><input class="input mono" bind:value={t.upstream_model} placeholder="deepseek/deepseek-flash" /></div>
-        <div class="field"><label>上游接口</label>
-          <select class="select" bind:value={t.api_type} on:change={() => syncPath(t)}>
+        <div class="field"><label for={`t-model-${i}`}>Upstream model</label><input id={`t-model-${i}`} class="input mono" bind:value={t.upstream_model} placeholder="deepseek/deepseek-flash" /></div>
+        <div class="field"><label for={`t-api-${i}`}>上游接口</label>
+          <select id={`t-api-${i}`} class="select" bind:value={t.api_type} on:change={() => syncPath(t)}>
             {#each APIS as [value, label]}<option value={value}>{label}</option>{/each}
           </select>
         </div>
-        <div class="field path"><label>Path</label><input class="input mono" bind:value={t.upstream_path} /></div>
-        <div class="field weight"><label>权重</label><input class="input" type="number" min="1" bind:value={t.weight} /></div>
+        <div class="field path"><label for={`t-path-${i}`}>Path</label><input id={`t-path-${i}`} class="input mono" bind:value={t.upstream_path} /></div>
+        <div class="field weight"><label for={`t-weight-${i}`}>权重</label><input id={`t-weight-${i}`} class="input" type="number" min="1" bind:value={t.weight} /></div>
         <button class="btn sm danger-lite remove" type="button" on:click={() => removeTarget(i)} title="删除 target">✕</button>
       </div>
     {/each}
@@ -296,6 +296,7 @@
   .wide { grid-column: 1 / -1; }
   .check-row { display: flex; gap: 20px; flex-wrap: wrap; padding: 8px 0; }
   .check { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: #334155; }
+  .label { font-size: 12px; color: #475569; font-weight: 650; }
   .target-editor { border-top: 1px solid #e2e8f0; padding-top: 15px; }
   .te-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
   .te-head h3 { margin: 0; font-size: 13.5px; }

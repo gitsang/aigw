@@ -196,6 +196,9 @@ func (a *App) attempt(ctx context.Context, req translate.Request, target store.R
 	if err != nil {
 		return router.AttemptOutcome{Retryable: true, StatusCode: http.StatusBadGateway, Err: fmt.Errorf("load target: %w", err)}
 	}
+	// Track the attempted provider even if this attempt fails, so the request
+	// log can attribute the failure to a provider.
+	*state = attemptState{target: runtimeTarget}
 	body, err := translate.BuildUpstreamRequest(runtimeTarget.APIType, req, runtimeTarget.UpstreamModel)
 	if err != nil {
 		return router.AttemptOutcome{Retryable: false, StatusCode: http.StatusBadGateway, Err: err}

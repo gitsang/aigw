@@ -570,7 +570,8 @@ func (s *Store) GetRuntimeTarget(ctx context.Context, targetID string) (RuntimeT
 	err := s.pool.QueryRow(ctx, `
 SELECT t.id, t.rule_id, t.role, p.id, p.name, p.base_url, p.auth_type,
        p.api_key_ciphertext, p.headers, p.timeout_ms, t.upstream_model, t.api_type,
-       t.upstream_path, t.weight, t.priority
+       t.upstream_path, t.weight, t.priority,
+       p.input_price_per_million::float8, p.output_price_per_million::float8
 FROM routing_targets t JOIN providers p ON p.id=t.provider_id
 WHERE t.id=$1 AND t.enabled=TRUE AND p.enabled=TRUE`, targetID).Scan(
 		&t.TargetID, &t.RuleID, &t.Role, &t.ProviderID, &t.ProviderName, &t.BaseURL,

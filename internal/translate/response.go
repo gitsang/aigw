@@ -324,7 +324,7 @@ func responseID(id, apiType string) string {
 	case APIMessages:
 		prefix = "msg_"
 	}
-	if strings.HasPrefix(id, prefix) || strings.HasPrefix(id, "chatcmpl") || strings.HasPrefix(id, "resp_") || strings.HasPrefix(id, "msg_") {
+	if strings.HasPrefix(id, prefix) {
 		return id
 	}
 	return prefix + suffix(id)
