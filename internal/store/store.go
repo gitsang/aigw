@@ -178,15 +178,22 @@ GROUP BY p.id ORDER BY p.created_at ASC`)
 
 func scanProvider(row rowScanner) (Provider, error) {
 	var p Provider
-	var headers []byte
+	var headers, pathOverrides []byte
 	err := row.Scan(&p.ID, &p.Name, &p.BaseURL, &p.AuthType, &p.APIKeyLast4, &p.HasAPIKey,
 		&headers, &p.HealthCheckURL, &p.HealthCheckMethod, &p.TimeoutMS,
-		&p.InputPricePerMillion, &p.OutputPricePerMillion, &p.Enabled, &p.CreatedAt, &p.UpdatedAt,
-		&p.TotalTargets, &p.HealthyTargets)
+		&p.InputPricePerMillion, &p.OutputPricePerMillion, &p.APITypes, &pathOverrides,
+		&p.Enabled, &p.CreatedAt, &p.UpdatedAt, &p.TotalTargets, &p.HealthyTargets)
 	if err != nil {
 		return p, err
 	}
 	p.Headers = decodeHeaders(headers)
+	p.PathOverrides = map[string]string{}
+	if len(pathOverrides) > 0 {
+		_ = json.Unmarshal(pathOverrides, &p.PathOverrides)
+	}
+	if p.APITypes == nil {
+		p.APITypes = []string{}
+	}
 	return p, nil
 }
 
@@ -194,6 +201,7 @@ const providerSelect = `
 SELECT p.id, p.name, p.base_url, p.auth_type, p.api_key_last4,
        (p.api_key_ciphertext <> ''), p.headers, p.health_check_url, p.health_check_method,
        p.timeout_ms, p.input_price_per_million::float8, p.output_price_per_million::float8,
+       p.api_types, p.path_overrides,
        p.enabled, p.created_at, p.updated_at,
        COUNT(t.id) FILTER (WHERE t.enabled)::int,
        COUNT(t.id) FILTER (WHERE t.enabled AND COALESCE(h.healthy, TRUE))::int
@@ -223,11 +231,12 @@ func (s *Store) CreateProvider(ctx context.Context, in ProviderInput) (Provider,
 	err = s.pool.QueryRow(ctx, `
 INSERT INTO providers (name, base_url, auth_type, api_key_ciphertext, api_key_last4, headers,
 health_check_url, health_check_method, timeout_ms, input_price_per_million,
-output_price_per_million, enabled)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+output_price_per_million, api_types, path_overrides, enabled)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
 		in.Name, in.BaseURL, normalizeAuthType(in.AuthType), enc, last4, marshalHeaders(in.Headers),
 		in.HealthCheckURL, normalizeHealthMethod(in.HealthCheckMethod), normalizeTimeout(in.TimeoutMS),
-		in.InputPricePerMillion, in.OutputPricePerMillion, boolOr(in.Enabled, true)).Scan(&id)
+		in.InputPricePerMillion, in.OutputPricePerMillion, normalizeAPITypesOrEmpty(in.APITypes),
+		marshalHeaders(in.PathOverrides), boolOr(in.Enabled, true)).Scan(&id)
 	if err != nil {
 		return Provider{}, err
 	}
@@ -248,11 +257,13 @@ UPDATE providers SET name=$2, base_url=$3, auth_type=$4,
 api_key_ciphertext=CASE WHEN $5::text='' THEN api_key_ciphertext ELSE $5 END,
 api_key_last4=CASE WHEN $5::text='' THEN api_key_last4 ELSE $6 END,
 headers=$7, health_check_url=$8, health_check_method=$9, timeout_ms=$10,
-input_price_per_million=$11, output_price_per_million=$12, enabled=$13
+input_price_per_million=$11, output_price_per_million=$12,
+api_types=$13, path_overrides=$14, enabled=$15
 WHERE id=$1`,
 		id, in.Name, in.BaseURL, normalizeAuthType(in.AuthType), enc, last4,
 		marshalHeaders(in.Headers), in.HealthCheckURL, normalizeHealthMethod(in.HealthCheckMethod),
 		normalizeTimeout(in.TimeoutMS), in.InputPricePerMillion, in.OutputPricePerMillion,
+		normalizeAPITypesOrEmpty(in.APITypes), marshalHeaders(in.PathOverrides),
 		boolOr(in.Enabled, true))
 	if err != nil {
 		return Provider{}, err
@@ -395,16 +406,20 @@ ORDER BY t.role DESC, t.priority DESC, t.created_at ASC`, ruleID)
 func scanTarget(row rowScanner) (RouteTarget, error) {
 	var t RouteTarget
 	h := TargetHealth{}
-	var overrides []byte
+	var modelOverrides, providerOverrides []byte
 	err := row.Scan(&t.ID, &t.RuleID, &t.Role, &t.ProviderID, &t.ProviderName, &t.ProviderBaseURL,
 		&t.ProviderModelID, &t.UpstreamModel, &t.UpstreamModel, &t.APIType, &t.UpstreamPath,
-		&t.Weight, &t.Priority, &t.Enabled, &t.SupportedAPITypes, &overrides,
+		&t.Weight, &t.Priority, &t.Enabled, &t.SupportedAPITypes, &modelOverrides,
+		&t.ProviderAPITypes, &providerOverrides,
 		&h.Healthy, &h.CheckedAt, &h.LatencyMS, &h.StatusCode, &h.Error)
 	if err != nil {
 		return t, err
 	}
-	if len(overrides) > 0 {
-		_ = json.Unmarshal(overrides, &t.PathOverrides)
+	if len(modelOverrides) > 0 {
+		_ = json.Unmarshal(modelOverrides, &t.PathOverrides)
+	}
+	if len(providerOverrides) > 0 {
+		_ = json.Unmarshal(providerOverrides, &t.ProviderPathOverrides)
 	}
 	t.Health = &h
 	return t, nil

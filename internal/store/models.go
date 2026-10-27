@@ -52,22 +52,24 @@ type ProviderInput struct {
 }
 
 type RouteTarget struct {
-	ID                string            `json:"id"`
-	RuleID            string            `json:"rule_id"`
-	Role              string            `json:"role"`
-	ProviderID        string            `json:"provider_id"`
-	ProviderName      string            `json:"provider_name"`
-	ProviderBaseURL   string            `json:"provider_base_url,omitempty"`
-	ProviderModelID   string            `json:"provider_model_id,omitempty"`
-	UpstreamModel     string            `json:"upstream_model"`
-	APIType           string            `json:"api_type"`
-	UpstreamPath      string            `json:"upstream_path"`
-	SupportedAPITypes []string          `json:"supported_api_types,omitempty"`
-	PathOverrides     map[string]string `json:"path_overrides,omitempty"`
-	Weight            int               `json:"weight"`
-	Priority          int               `json:"priority"`
-	Enabled           bool              `json:"enabled"`
-	Health            *TargetHealth     `json:"health,omitempty"`
+	ID                    string            `json:"id"`
+	RuleID                string            `json:"rule_id"`
+	Role                  string            `json:"role"`
+	ProviderID            string            `json:"provider_id"`
+	ProviderName          string            `json:"provider_name"`
+	ProviderBaseURL       string            `json:"provider_base_url,omitempty"`
+	ProviderModelID       string            `json:"provider_model_id,omitempty"`
+	UpstreamModel         string            `json:"upstream_model"`
+	APIType               string            `json:"api_type"`
+	UpstreamPath          string            `json:"upstream_path"`
+	SupportedAPITypes     []string          `json:"supported_api_types,omitempty"`
+	PathOverrides         map[string]string `json:"path_overrides,omitempty"`
+	ProviderAPITypes      []string          `json:"provider_api_types,omitempty"`
+	ProviderPathOverrides map[string]string `json:"provider_path_overrides,omitempty"`
+	Weight                int               `json:"weight"`
+	Priority              int               `json:"priority"`
+	Enabled               bool              `json:"enabled"`
+	Health                *TargetHealth     `json:"health,omitempty"`
 }
 
 type TargetHealth struct {

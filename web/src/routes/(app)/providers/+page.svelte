@@ -20,6 +20,22 @@
   });
   const blankModel = () => ({ model_id: '', display_name: '', api_types: ['chat.completions'], path_overrides: {}, enabled: true });
 
+  const PROTOCOL_LABEL = Object.fromEntries(PROTOCOLS.map(([v, label]) => [v, label]));
+  const PROTOCOL_DEFAULT = Object.fromEntries(PROTOCOLS.map(([v, , p]) => [v, p]));
+  const apiTypeLabel = (name) => PROTOCOL_LABEL[name] || name;
+  const apiTypeDefault = (name) => PROTOCOL_DEFAULT[name] || '';
+  // Provider-level effective path (used as the model-level placeholder).
+  const providerPath = (provider, name) => provider?.path_overrides?.[name] || apiTypeDefault(name);
+  function toggleProviderProtocol(name) {
+    const has = form.api_types.includes(name);
+    form.api_types = has ? form.api_types.filter((v) => v !== name) : [...form.api_types, name];
+    if (has) delete form.path_overrides[name];
+  }
+  function providerProtocolSummary(provider) {
+    const types = provider?.api_types?.length ? provider.api_types : PROTOCOLS.map(([v]) => v);
+    return types.map(apiTypeLabel).join(' / ');
+  }
+
   let providers = [];
   let loading = true;
   let error = '';
