@@ -26,16 +26,37 @@ func DefaultAPITypes() []string {
 
 // ChooseAPIType picks the upstream protocol for an inbound request.
 //
-// Precedence: explicit model protocols > provider protocols > built-in defaults.
-// If the inbound protocol is available it is kept (no translation); otherwise
-// the first supported protocol wins and the payload is translated.
-func ChooseAPIType(modelTypes, providerTypes []string, inbound string) string {
-	pool := modelTypes
-	if len(pool) == 0 {
-		pool = providerTypes
+// Precedence of the supported-protocol list:
+//
+//	target protocols > model protocols > provider protocols > built-in defaults.
+//
+// The target list may restrict the available protocols; it is intersected with
+// the model/provider supported list while preserving the target's configured
+// order. If the inbound protocol is in the resulting list it is used directly
+// (no translation); otherwise the first configured protocol wins.
+func ChooseAPIType(targetTypes, modelTypes, providerTypes []string, inbound string) string {
+	available := modelTypes
+	if len(available) == 0 {
+		available = providerTypes
 	}
-	if len(pool) == 0 {
-		pool = DefaultAPITypes()
+	if len(available) == 0 {
+		available = DefaultAPITypes()
+	}
+	pool := available
+	if len(targetTypes) > 0 {
+		allowed := map[string]bool{}
+		for _, t := range available {
+			allowed[t] = true
+		}
+		filtered := make([]string, 0, len(targetTypes))
+		for _, t := range targetTypes {
+			if allowed[t] {
+				filtered = append(filtered, t)
+			}
+		}
+		if len(filtered) > 0 {
+			pool = filtered
+		}
 	}
 	if inbound != "" {
 		for _, name := range pool {
@@ -45,6 +66,20 @@ func ChooseAPIType(modelTypes, providerTypes []string, inbound string) string {
 		}
 	}
 	return pool[0]
+}
+
+// NormalizeOrderedAPITypes dedupes protocols while preserving caller order.
+func NormalizeOrderedAPITypes(v []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(v))
+	for _, item := range v {
+		item = normalizeAPIType(item)
+		if !seen[item] {
+			seen[item] = true
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 // ResolvePath returns the effective upstream path for a protocol.
@@ -264,15 +299,15 @@ func (s *Store) ResolveTarget(ctx context.Context, targetID, inboundAPIType stri
 	var t RuntimeTarget
 	var ct string
 	var headers []byte
-	var providerTypes []string
+	var targetTypes, providerTypes []string
 	var providerOverridesRaw []byte
 	var modelID string
 	var modelTypes []string
 	var modelOverridesRaw []byte
 	err := s.pool.QueryRow(ctx, `
 SELECT t.id, t.rule_id, t.role, p.id, p.name, p.base_url, p.auth_type,
-       p.api_key_ciphertext, p.headers, p.timeout_ms, t.upstream_model, t.api_type,
-       t.upstream_path, t.weight, t.priority,
+       p.api_key_ciphertext, p.headers, p.timeout_ms, t.upstream_model, t.api_types,
+       t.weight, t.priority,
        p.input_price_per_million::float8, p.output_price_per_million::float8,
        p.api_types, p.path_overrides,
        COALESCE(pm.model_id,''), COALESCE(pm.api_types,'{}'::text[]),
@@ -283,8 +318,8 @@ LEFT JOIN provider_models pm ON pm.id=t.provider_model_id
 WHERE t.id=$1 AND t.enabled=TRUE AND p.enabled=TRUE
   AND (t.provider_model_id IS NULL OR pm.enabled=TRUE)`, targetID).Scan(
 		&t.TargetID, &t.RuleID, &t.Role, &t.ProviderID, &t.ProviderName, &t.BaseURL,
-		&t.AuthType, &ct, &headers, &t.TimeoutMS, &t.UpstreamModel, &t.APIType,
-		&t.UpstreamPath, &t.Weight, &t.Priority, &t.InputPrice, &t.OutputPrice,
+		&t.AuthType, &ct, &headers, &t.TimeoutMS, &t.UpstreamModel, &targetTypes,
+		&t.Weight, &t.Priority, &t.InputPrice, &t.OutputPrice,
 		&providerTypes, &providerOverridesRaw, &modelID, &modelTypes, &modelOverridesRaw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return t, ErrNotFound
@@ -307,11 +342,8 @@ WHERE t.id=$1 AND t.enabled=TRUE AND p.enabled=TRUE
 	}
 	if modelID != "" {
 		t.UpstreamModel = modelID
-		t.APIType = ChooseAPIType(modelTypes, providerTypes, inboundAPIType)
-		t.UpstreamPath = ResolvePath(modelOverrides, providerOverrides, t.APIType)
-	} else {
-		t.APIType = ChooseAPIType(nil, providerTypes, inboundAPIType)
-		t.UpstreamPath = ResolvePath(nil, providerOverrides, t.APIType)
 	}
+	t.APIType = ChooseAPIType(targetTypes, modelTypes, providerTypes, inboundAPIType)
+	t.UpstreamPath = ResolvePath(modelOverrides, providerOverrides, t.APIType)
 	return t, nil
 }

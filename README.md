@@ -166,12 +166,27 @@ Protocol configuration is **per provider**, not global:
 
 Resolution rules for an inbound request:
 
-- Model API types > provider API types > built-in defaults.
-- If the resolved list contains the inbound protocol it is used directly (no
-  translation); otherwise the first protocol is used and payloads are translated.
-- Path precedence: model path override > provider path override > built-in default.
+- API type precedence: target protocols > model protocols > provider protocols >
+  built-in defaults.
+- Each routing target has an **ordered multi-select of upstream protocols**
+  (e.g. `Responses → Chat Completions`). The target list can restrict the
+  protocols made available by the model/provider.
+- If the inbound protocol is present in the resolved target list it is used
+  directly (no translation). Otherwise the **first protocol in the target's
+  configured order** is used and the request/response/stream is translated.
+- Path precedence: model path override > provider path override > built-in
+  default. Routing targets no longer carry a path field.
 - Health probes use the same resolved protocol/path (or the provider-level
   `health_check_url` override when set).
+
+Example: a rule accepts all three entry APIs and a target lists
+`Responses, Chat Completions`.
+
+| Inbound | Upstream protocol |
+| --- | --- |
+| Chat Completions | Chat Completions (exact match) |
+| Responses | Responses (exact match) |
+| Messages | Responses (first configured, translated) |
 
 ## Routing example
 

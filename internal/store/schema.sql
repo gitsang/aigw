@@ -42,8 +42,7 @@ CREATE TABLE IF NOT EXISTS routing_targets (
     role TEXT NOT NULL DEFAULT 'lb' CHECK (role IN ('lb', 'fallback')),
     provider_id UUID NOT NULL REFERENCES providers(id) ON DELETE RESTRICT,
     upstream_model TEXT NOT NULL,
-    api_type TEXT NOT NULL DEFAULT 'chat.completions' CHECK (api_type IN ('chat.completions', 'responses', 'messages')),
-    upstream_path TEXT NOT NULL DEFAULT '/v1/chat/completions',
+    api_types TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
     weight INTEGER NOT NULL DEFAULT 100 CHECK (weight > 0),
     priority INTEGER NOT NULL DEFAULT 0,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
@@ -124,6 +123,10 @@ CREATE INDEX IF NOT EXISTS idx_provider_models_provider_id ON provider_models(pr
 
 ALTER TABLE routing_targets
     ADD COLUMN IF NOT EXISTS provider_model_id UUID REFERENCES provider_models(id) ON DELETE SET NULL;
+ALTER TABLE routing_targets
+    ADD COLUMN IF NOT EXISTS api_types TEXT[] NOT NULL DEFAULT '{}'::TEXT[];
+ALTER TABLE routing_targets DROP COLUMN IF EXISTS api_type;
+ALTER TABLE routing_targets DROP COLUMN IF EXISTS upstream_path;
 
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS TRIGGER AS $$
 BEGIN

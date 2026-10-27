@@ -20,6 +20,7 @@
 
   const blankTarget = (role = 'lb') => ({
     role, provider_id: '', provider_model_id: '', upstream_model: '',
+    api_types: [...APIS.map(([v]) => v)],
     weight: 50, priority: 0, enabled: true
   });
   const blankRule = () => ({
@@ -78,6 +79,7 @@
         id: t.id, role: t.role, provider_id: t.provider_id,
         provider_model_id: t.provider_model_id || '',
         upstream_model: t.upstream_model,
+        api_types: [...(t.api_types || [])],
         weight: t.weight, priority: t.priority, enabled: t.enabled
       }))
     };
@@ -120,11 +122,17 @@
     return providerModels[providerID];
   }
 
-  async function onProviderChange(target) {
-    target.provider_model_id = '';
-    target.upstream_model = '';
+  async function onProviderChange(index) {
+    const target = form.targets[index];
+    updateTarget(index, { provider_model_id: '', upstream_model: '', api_types: [] });
     const list = await ensureModels(target.provider_id);
-    if (list.length) target.provider_model_id = list[0].id;
+    const next = { ...form.targets[index] };
+    if (list.length) next.provider_model_id = list[0].id;
+    next.api_types = initialTargetProtocols(next);
+    updateTarget(index, next);
+  }
+  async function onModelChange(index) {
+    updateTarget(index, { api_types: initialTargetProtocols(form.targets[index]) });
   }
 
   function modelsFor(providerID) { return providerModels[providerID] || []; }
@@ -132,22 +140,51 @@
     return modelsFor(target.provider_id).find((m) => m.id === target.provider_model_id);
   }
   function providerOf(target) { return providers.find((p) => p.id === target.provider_id); }
-  function targetProtocols(target) {
-    const m = modelOf(target);
-    if (m?.api_types?.length) return `${m.api_types.map(apiLabel).join(' / ')}（模型配置）`;
-    const p = providerOf(target);
-    if (p?.api_types?.length) return `${p.api_types.map(apiLabel).join(' / ')}（继承 Provider）`;
-    return '内置默认（全部协议）';
+  // Ordered protocol multi-select: order matters because the first protocol is
+  // used when the inbound protocol is not in the target's list.
+  function updateTarget(index, patch) {
+    // Reassign the array so Svelte's legacy reactivity picks up nested edits.
+    form.targets = form.targets.map((t, i) => (i === index ? { ...t, ...patch } : t));
+  }
+  function toggleTargetProtocol(index, name) {
+    const t = form.targets[index];
+    const next = t.api_types.includes(name)
+      ? t.api_types.filter((v) => v !== name)
+      : [...t.api_types, name];
+    updateTarget(index, { api_types: next });
+  }
+  function protocolOrderText(target) {
+    return target.api_types.length ? target.api_types.map(apiLabel).join(' → ') : '未选择（继承模型/Provider）';
   }
   function targetPathHint(target) {
     const m = modelOf(target);
     const p = providerOf(target);
     const parts = [];
-    for (const [k, v] of Object.entries(m?.path_overrides || {})) parts.push(`${apiLabel(k)} → ${v}（模型）`);
+    for (const [k, v] of Object.entries(m?.path_overrides || {})) parts.push(`${apiLabel(k)}: ${v}`);
     for (const [k, v] of Object.entries(p?.path_overrides || {})) {
-      if (!m?.path_overrides?.[k]) parts.push(`${apiLabel(k)} → ${v}（Provider）`);
+      if (!m?.path_overrides?.[k]) parts.push(`${apiLabel(k)}: ${v}`);
     }
     return parts.length ? parts.join('  ') : '内置默认 Path';
+  }
+  // Effective protocols the target can use: its own list filtered by what the
+  // model/provider actually supports, in the target's configured order.
+  function effectiveProtocols(target) {
+    const m = modelOf(target);
+    const p = providerOf(target);
+    const available = m?.api_types?.length ? m.api_types : (p?.api_types?.length ? p.api_types : APIS.map(([v]) => v));
+    if (!target.api_types?.length) return available;
+    const filtered = target.api_types.filter((v) => available.includes(v));
+    return filtered.length ? filtered : available;
+  }
+  function initialTargetProtocols(target) {
+    const m = modelOf(target);
+    const p = providerOf(target);
+    const available = m?.api_types?.length ? m.api_types : (p?.api_types?.length ? p.api_types : APIS.map(([v]) => v));
+    return [...available];
+  }
+  function resetTargetProtocols(index) {
+    const t = form.targets[index];
+    updateTarget(index, { api_types: initialTargetProtocols(t) });
   }
 
   async function save() {
@@ -236,8 +273,8 @@
                 <span class="mono">{t.upstream_model}</span>
               </div>
               <div class="mono api-cell">
-                {t.supported_api_types?.length ? t.supported_api_types.map(apiLabel).join(' / ') : apiLabel(t.api_type)}
-                <div class="sub">{t.path_overrides && Object.keys(t.path_overrides).length ? Object.entries(t.path_overrides).map(([k,v]) => `${apiLabel(k)} → ${v}`).join('  ') : '全局默认 Path'}</div>
+                {t.api_types?.length ? t.api_types.map(apiLabel).join(' → ') : '继承'}
+                <div class="sub">{t.path_overrides && Object.keys(t.path_overrides).length ? Object.entries(t.path_overrides).map(([k,v]) => `${apiLabel(k)} → ${v}`).join('  ') : 'Provider/内置 Path'}</div>
               </div>
               <div class="mono weight">{t.role === 'fallback' ? '—' : `${t.weight}`}</div>
               <div>
@@ -295,8 +332,8 @@
       <div><button class="btn sm" type="button" on:click={() => addTarget('lb')}>+ LB</button><button class="btn sm" type="button" on:click={() => addTarget('fallback')}>+ Fallback</button></div>
     </div>
     <p class="te-note">
-      这里只选择 <b>Provider + 模型</b>。模型支持的 API 类型和 Path 在 Provider 的「模型管理」中配置；
-      未配置时使用「全局 API 配置」的默认值。请求会优先使用与入口相同的协议，否则使用模型支持的第一个协议自动转换。
+      每个 target 可选择多个<b>上游协议</b>并按顺序排列。请求入口协议在列表中时直接使用它；
+      否则使用列表中的第一个协议并自动转换。Path 由模型/Provider 配置决定，target 不再单独配置。
     </p>
     {#each form.targets as t, i}
       <div class="te-row">
@@ -306,20 +343,35 @@
           </select>
         </div>
         <div class="field"><label for={`t-provider-${i}`}>Provider</label>
-          <select id={`t-provider-${i}`} class="select" bind:value={t.provider_id} on:change={() => onProviderChange(t)}>
+          <select id={`t-provider-${i}`} class="select" bind:value={t.provider_id} on:change={() => onProviderChange(i)}>
             <option value="">选择…</option>
             {#each providers as p}<option value={p.id}>{p.name}</option>{/each}
           </select>
         </div>
         <div class="field"><label for={`t-model-${i}`}>模型</label>
-          <select id={`t-model-${i}`} class="select" bind:value={t.provider_model_id}>
+          <select id={`t-model-${i}`} class="select" bind:value={t.provider_model_id} on:change={() => onModelChange(i)}>
             <option value="">选择模型…</option>
             {#each modelsFor(t.provider_id) as m}<option value={m.id}>{m.model_id}</option>{/each}
           </select>
         </div>
         <div class="target-summary">
-          <div class="ts-row"><span class="ts-label">协议</span><span>{targetProtocols(t)}</span></div>
-          <div class="ts-row"><span class="ts-label">Path</span><span class="mono">{targetPathHint(t)}</span></div>
+          <div class="proto-chips">
+            {#each t.api_types as name}
+              <button class="proto-chip" type="button" on:click={() => toggleTargetProtocol(i, name)} title="点击移除">
+                {apiLabel(name)}<span class="ord">{t.api_types.indexOf(name) + 1}</span>✕
+              </button>
+            {/each}
+            {#if !t.api_types.length}<span class="proto-empty">未选择</span>{/if}
+          </div>
+          <div class="proto-add">
+            {#each APIS as [value, label]}
+              {#if !t.api_types.includes(value)}
+                <button class="proto-add-btn" type="button" on:click={() => toggleTargetProtocol(i, value)}>+ {label}</button>
+              {/if}
+            {/each}
+            <button class="proto-reset" type="button" on:click={() => resetTargetProtocols(i)}>重置</button>
+          </div>
+          <div class="ts-row mono">顺序：{protocolOrderText(t)} · Path: {targetPathHint(t)}</div>
           {#if t.provider_id && !modelsFor(t.provider_id).length}
             <div class="ts-warn">该 Provider 还没有模型，请先到 Provider 详情添加。</div>
           {/if}
@@ -375,10 +427,28 @@
   .te-head > div { display: flex; gap: 6px; }
   .te-row { display: grid; grid-template-columns: 90px 1fr 1.25fr 1.35fr 70px 32px; gap: 8px; align-items: end; padding: 10px; background: #f8fafc; border-radius: 9px; margin-bottom: 8px; }
   .target-summary { min-width: 0; padding-bottom: 8px; display: flex; flex-direction: column; gap: 3px; }
-  .ts-row { display: flex; gap: 6px; font-size: 11px; color: #475569; line-height: 1.4; }
-  .ts-label { color: #94a3b8; flex: 0 0 30px; }
-  .ts-row .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ts-row { font-size: 10.5px; color: #64748b; line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ts-warn { color: #b45309; font-size: 10.5px; }
+  .proto-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .proto-chip {
+    display: inline-flex; align-items: center; gap: 4px; border: 1px solid #bfdbfe;
+    background: #eff6ff; color: #1d4ed8; border-radius: 6px; padding: 2px 6px;
+    font-size: 10.5px; font-weight: 600; cursor: pointer;
+  }
+  .proto-chip:hover { background: #fee2e2; border-color: #fecaca; color: #b91c1c; }
+  .proto-chip .ord {
+    display: inline-grid; place-items: center; width: 13px; height: 13px; border-radius: 50%;
+    background: #2563eb; color: #fff; font-size: 9px;
+  }
+  .proto-chip:hover .ord { background: #dc2626; }
+  .proto-empty { font-size: 10.5px; color: #b45309; }
+  .proto-add { display: flex; flex-wrap: wrap; gap: 4px; margin: 3px 0; }
+  .proto-add-btn, .proto-reset {
+    border: 1px dashed #cbd5e1; background: #fff; color: #64748b; border-radius: 5px;
+    padding: 1px 6px; font-size: 10px; cursor: pointer;
+  }
+  .proto-add-btn:hover { border-color: #93c5fd; color: #1d4ed8; }
+  .proto-reset { border-style: solid; }
   .remove { align-self: end; margin-bottom: 1px; padding: 8px; }
   @media (max-width: 900px) {
     .te-row { grid-template-columns: 1fr 1fr; }

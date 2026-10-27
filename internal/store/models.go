@@ -60,8 +60,7 @@ type RouteTarget struct {
 	ProviderBaseURL       string            `json:"provider_base_url,omitempty"`
 	ProviderModelID       string            `json:"provider_model_id,omitempty"`
 	UpstreamModel         string            `json:"upstream_model"`
-	APIType               string            `json:"api_type"`
-	UpstreamPath          string            `json:"upstream_path"`
+	APITypes              []string          `json:"api_types"`
 	SupportedAPITypes     []string          `json:"supported_api_types,omitempty"`
 	PathOverrides         map[string]string `json:"path_overrides,omitempty"`
 	ProviderAPITypes      []string          `json:"provider_api_types,omitempty"`
@@ -110,16 +109,15 @@ type RoutingRuleInput struct {
 }
 
 type RouteTargetInput struct {
-	ID              string `json:"id,omitempty"`
-	Role            string `json:"role"`
-	ProviderID      string `json:"provider_id"`
-	ProviderModelID string `json:"provider_model_id,omitempty"`
-	UpstreamModel   string `json:"upstream_model"`
-	APIType         string `json:"api_type"`
-	UpstreamPath    string `json:"upstream_path"`
-	Weight          int    `json:"weight"`
-	Priority        int    `json:"priority"`
-	Enabled         *bool  `json:"enabled"`
+	ID              string   `json:"id,omitempty"`
+	Role            string   `json:"role"`
+	ProviderID      string   `json:"provider_id"`
+	ProviderModelID string   `json:"provider_model_id,omitempty"`
+	UpstreamModel   string   `json:"upstream_model"`
+	APITypes        []string `json:"api_types"`
+	Weight          int      `json:"weight"`
+	Priority        int      `json:"priority"`
+	Enabled         *bool    `json:"enabled"`
 }
 
 // ProviderModel is one upstream model exposed by a provider.
