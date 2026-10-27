@@ -153,6 +153,7 @@ func (s *Store) ListProviders(ctx context.Context) ([]Provider, error) {
 SELECT p.id, p.name, p.base_url, p.auth_type, p.api_key_last4,
        (p.api_key_ciphertext <> ''), p.headers, p.health_check_url, p.health_check_method,
        p.timeout_ms, p.input_price_per_million::float8, p.output_price_per_million::float8,
+       p.api_types, p.path_overrides,
        p.enabled, p.created_at, p.updated_at,
        COUNT(t.id) FILTER (WHERE t.enabled)::int,
        COUNT(t.id) FILTER (WHERE t.enabled AND COALESCE(h.healthy, TRUE))::int
@@ -367,6 +368,7 @@ SELECT t.id, t.rule_id, t.role, t.provider_id, p.name, p.base_url,
        COALESCE(t.provider_model_id::text,''), COALESCE(pm.model_id,''), t.upstream_model,
        t.api_type, t.upstream_path, t.weight, t.priority, t.enabled,
        COALESCE(pm.api_types,'{}'::text[]), COALESCE(pm.path_overrides,'{}'::jsonb),
+       p.api_types, p.path_overrides,
        COALESCE(h.healthy, TRUE), h.checked_at, COALESCE(h.latency_ms,0),
        COALESCE(h.status_code,0), COALESCE(h.error,'')
 FROM routing_targets t
@@ -559,6 +561,21 @@ func normalizeAPITypes(v []string) []string {
 	return out
 }
 
+// normalizeAPITypesOrEmpty dedupes while preserving "unset" (empty) semantics,
+// which lets a provider inherit the built-in protocol defaults.
+func normalizeAPITypesOrEmpty(v []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(v))
+	for _, item := range v {
+		item = normalizeAPIType(item)
+		if !seen[item] {
+			seen[item] = true
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
 func normalizeRetryPolicy(v string) string {
 	if v == "fixed" {
 		return v
@@ -623,8 +640,9 @@ func (s *Store) ListHealthProbeTargets(ctx context.Context) ([]HealthProbeTarget
 	rows, err := s.pool.Query(ctx, `
 SELECT t.id, p.id, p.name, p.base_url, p.auth_type, p.api_key_ciphertext, p.headers,
        p.health_check_url, p.health_check_method, p.timeout_ms, t.upstream_model,
-       t.api_type, t.upstream_path, COALESCE(pm.model_id,''),
-       COALESCE(pm.api_types,'{}'::text[]), COALESCE(pm.path_overrides,'{}'::jsonb)
+       t.api_type, t.upstream_path, p.api_types, p.path_overrides,
+       COALESCE(pm.model_id,''), COALESCE(pm.api_types,'{}'::text[]),
+       COALESCE(pm.path_overrides,'{}'::jsonb)
 FROM routing_targets t
 JOIN providers p ON p.id=t.provider_id
 LEFT JOIN provider_models pm ON pm.id=t.provider_model_id
@@ -633,38 +651,41 @@ WHERE t.enabled=TRUE AND p.enabled=TRUE AND (t.provider_model_id IS NULL OR pm.e
 		return nil, err
 	}
 	defer rows.Close()
-	defaults, enabledDefaults, err := s.apiTypeDefaults(ctx)
-	if err != nil {
-		return nil, err
-	}
 	out := make([]HealthProbeTarget, 0)
 	for rows.Next() {
 		var t HealthProbeTarget
 		var ct string
 		var headers []byte
+		var providerTypes []string
+		var providerOverridesRaw []byte
 		var modelID string
 		var modelTypes []string
-		var overridesRaw []byte
+		var modelOverridesRaw []byte
 		if err := rows.Scan(&t.TargetID, &t.ProviderID, &t.ProviderName, &t.BaseURL, &t.AuthType,
 			&ct, &headers, &t.HealthCheckURL, &t.HealthCheckMethod, &t.TimeoutMS,
-			&t.UpstreamModel, &t.APIType, &t.UpstreamPath, &modelID, &modelTypes, &overridesRaw); err != nil {
+			&t.UpstreamModel, &t.APIType, &t.UpstreamPath, &providerTypes, &providerOverridesRaw,
+			&modelID, &modelTypes, &modelOverridesRaw); err != nil {
 			return nil, err
 		}
 		if ct != "" {
 			t.APIKey, _ = s.cipher.Decrypt(ct)
 		}
 		t.Headers = decodeHeaders(headers)
+		providerOverrides := map[string]string{}
+		if len(providerOverridesRaw) > 0 {
+			_ = json.Unmarshal(providerOverridesRaw, &providerOverrides)
+		}
+		modelOverrides := map[string]string{}
+		if len(modelOverridesRaw) > 0 {
+			_ = json.Unmarshal(modelOverridesRaw, &modelOverrides)
+		}
 		if modelID != "" {
-			overrides := map[string]string{}
-			if len(overridesRaw) > 0 {
-				_ = json.Unmarshal(overridesRaw, &overrides)
-			}
 			t.UpstreamModel = modelID
-			t.APIType = ChooseAPIType(modelTypes, enabledDefaults, "")
-			t.UpstreamPath = ResolvePath(overrides, defaults, t.APIType)
+			t.APIType = ChooseAPIType(modelTypes, providerTypes, "")
+			t.UpstreamPath = ResolvePath(modelOverrides, providerOverrides, t.APIType)
 		} else {
-			t.APIType = normalizeAPIType(t.APIType)
-			t.UpstreamPath = ResolvePath(nil, defaults, t.APIType)
+			t.APIType = ChooseAPIType(nil, providerTypes, "")
+			t.UpstreamPath = ResolvePath(nil, providerOverrides, t.APIType)
 		}
 		out = append(out, t)
 	}

@@ -151,32 +151,27 @@ curl http://localhost:8080/v1/messages \
 Streaming (`"stream": true`) is supported for all three entrypoints, including
 cross-protocol streaming conversion.
 
-## Global API types → provider models → routing
+## Provider configuration → models → routing
 
-Upstream protocol configuration now lives in three layers instead of being repeated
-on every routing target:
+Protocol configuration is **per provider**, not global:
 
-1. **Global API types** — which protocols the gateway exposes and their default
-   paths (`chat.completions` → `/v1/chat/completions`, `responses` → `/v1/responses`,
-   `messages` → `/v1/messages`). Editable from the Provider page.
-2. **Provider models** — each provider keeps a model catalog. Models can be pulled
-   from the provider's OpenAI-compatible `GET /models` endpoint or added manually.
-   Every model can declare the API types it supports and optionally override the
-   path per API type. A model with no API types inherits the enabled global types.
-3. **Routing targets** — a target now only picks a provider + one of its models
-   (plus weight/role). Protocol and path are resolved automatically.
+1. **Provider level** — each provider declares which upstream API types it supports
+   (`chat.completions`, `responses`, `messages`) and an optional default path per
+   API type. Empty list means the built-in defaults (all three).
+2. **Model level** — models exist only under a provider. They can be pulled from the
+   provider's OpenAI-compatible `GET /models` endpoint or added manually. Every model
+   may override the provider's API types and add a path override per API type.
+3. **Routing target** — only selects a provider + one of its models (plus role and
+   weight). Protocol and path are resolved automatically.
 
 Resolution rules for an inbound request:
 
-- If the model supports the inbound protocol, that protocol/path is used directly.
-- Otherwise the model's first supported protocol is used and the request/response
-  is translated.
-- A per-model path override wins over the global API type default.
-- Health probes use the same resolved protocol and path (or the provider-level
+- Model API types > provider API types > built-in defaults.
+- If the resolved list contains the inbound protocol it is used directly (no
+  translation); otherwise the first protocol is used and payloads are translated.
+- Path precedence: model path override > provider path override > built-in default.
+- Health probes use the same resolved protocol/path (or the provider-level
   `health_check_url` override when set).
-
-This means routing rules no longer need to duplicate `api_type` / `upstream_path`
-for every provider and model.
 
 ## Routing example
 
@@ -207,8 +202,6 @@ All admin endpoints require `Authorization: Bearer <admin_token>`:
 | Method | Path | Description |
 | --- | --- | --- |
 | GET | `/api/admin/session` | token check |
-| GET | `/api/admin/api-types` | list global API type defaults |
-| PUT | `/api/admin/api-types` | update global API type defaults |
 | GET | `/api/admin/providers` | list providers |
 | POST | `/api/admin/providers` | create provider |
 | PUT | `/api/admin/providers/{id}` | update provider |

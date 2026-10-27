@@ -33,8 +33,6 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Get("/session", h.session)
 		r.Get("/stats", h.stats)
 		r.Get("/logs", h.logs)
-		r.Get("/api-types", h.listAPITypes)
-		r.Put("/api-types", h.updateAPITypes)
 		r.Post("/health/check", h.healthCheck)
 		r.Route("/providers", func(r chi.Router) {
 			r.Get("/", h.listProviders)
@@ -325,30 +323,6 @@ func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) healthCheck(w http.ResponseWriter, r *http.Request) {
 	// The background prober runs every minute. This endpoint only reports that.
 	writeJSON(w, http.StatusAccepted, map[string]any{"message": "health checks run in the background every minute"})
-}
-
-func (h *Handler) listAPITypes(w http.ResponseWriter, r *http.Request) {
-	items, err := h.store.ListAPITypes(r.Context())
-	if err != nil {
-		h.fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, items)
-}
-
-func (h *Handler) updateAPITypes(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Types []store.APITypeInput `json:"types"`
-	}
-	if !decode(w, r, &in) {
-		return
-	}
-	items, err := h.store.UpdateAPITypes(r.Context(), in.Types)
-	if err != nil {
-		h.fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, items)
 }
 
 func (h *Handler) listProviderModels(w http.ResponseWriter, r *http.Request) {

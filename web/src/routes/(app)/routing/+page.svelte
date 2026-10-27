@@ -131,16 +131,23 @@
   function modelOf(target) {
     return modelsFor(target.provider_id).find((m) => m.id === target.provider_model_id);
   }
+  function providerOf(target) { return providers.find((p) => p.id === target.provider_id); }
   function targetProtocols(target) {
     const m = modelOf(target);
-    return m?.api_types?.length ? m.api_types.map(apiLabel).join(' / ') : '跟随全局默认';
+    if (m?.api_types?.length) return `${m.api_types.map(apiLabel).join(' / ')}（模型配置）`;
+    const p = providerOf(target);
+    if (p?.api_types?.length) return `${p.api_types.map(apiLabel).join(' / ')}（继承 Provider）`;
+    return '内置默认（全部协议）';
   }
   function targetPathHint(target) {
     const m = modelOf(target);
-    const overrides = m?.path_overrides || {};
-    const keys = Object.keys(overrides);
-    if (keys.length) return keys.map((k) => `${apiLabel(k)} → ${overrides[k]}`).join('  ');
-    return '使用全局默认 Path';
+    const p = providerOf(target);
+    const parts = [];
+    for (const [k, v] of Object.entries(m?.path_overrides || {})) parts.push(`${apiLabel(k)} → ${v}（模型）`);
+    for (const [k, v] of Object.entries(p?.path_overrides || {})) {
+      if (!m?.path_overrides?.[k]) parts.push(`${apiLabel(k)} → ${v}（Provider）`);
+    }
+    return parts.length ? parts.join('  ') : '内置默认 Path';
   }
 
   async function save() {

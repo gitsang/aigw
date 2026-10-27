@@ -12,9 +12,14 @@ CREATE TABLE IF NOT EXISTS providers (
     input_price_per_million NUMERIC(14,6) NOT NULL DEFAULT 0,
     output_price_per_million NUMERIC(14,6) NOT NULL DEFAULT 0,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    api_types TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
+    path_overrides JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS api_types TEXT[] NOT NULL DEFAULT '{}'::TEXT[];
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS path_overrides JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE TABLE IF NOT EXISTS routing_rules (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -100,22 +105,6 @@ CREATE INDEX IF NOT EXISTS idx_request_logs_api_type ON request_logs(api_type);
 CREATE INDEX IF NOT EXISTS idx_routing_targets_rule_id ON routing_targets(rule_id);
 CREATE INDEX IF NOT EXISTS idx_routing_targets_provider_id ON routing_targets(provider_id);
 
-
--- ---------------------------------------------------- global API type catalog
-CREATE TABLE IF NOT EXISTS api_types (
-    name TEXT PRIMARY KEY,
-    path TEXT NOT NULL,
-    enabled BOOLEAN NOT NULL DEFAULT TRUE,
-    headers JSONB NOT NULL DEFAULT '{}'::jsonb,
-    sort_order INTEGER NOT NULL DEFAULT 0,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-INSERT INTO api_types (name, path, sort_order) VALUES
-    ('chat.completions', '/v1/chat/completions', 10),
-    ('responses', '/v1/responses', 20),
-    ('messages', '/v1/messages', 30)
-ON CONFLICT (name) DO NOTHING;
 
 -- ------------------------------------------------------ provider model catalog
 CREATE TABLE IF NOT EXISTS provider_models (

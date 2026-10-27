@@ -26,6 +26,8 @@ type Provider struct {
 	TimeoutMS             int               `json:"timeout_ms"`
 	InputPricePerMillion  float64           `json:"input_price_per_million"`
 	OutputPricePerMillion float64           `json:"output_price_per_million"`
+	APITypes              []string          `json:"api_types"`
+	PathOverrides         map[string]string `json:"path_overrides"`
 	Enabled               bool              `json:"enabled"`
 	CreatedAt             time.Time         `json:"created_at"`
 	UpdatedAt             time.Time         `json:"updated_at"`
@@ -44,6 +46,8 @@ type ProviderInput struct {
 	TimeoutMS             int               `json:"timeout_ms"`
 	InputPricePerMillion  float64           `json:"input_price_per_million"`
 	OutputPricePerMillion float64           `json:"output_price_per_million"`
+	APITypes              []string          `json:"api_types"`
+	PathOverrides         map[string]string `json:"path_overrides"`
 	Enabled               *bool             `json:"enabled"`
 }
 
@@ -114,23 +118,6 @@ type RouteTargetInput struct {
 	Weight          int    `json:"weight"`
 	Priority        int    `json:"priority"`
 	Enabled         *bool  `json:"enabled"`
-}
-
-// APITypeDef is the global default for one upstream protocol.
-type APITypeDef struct {
-	Name      string            `json:"name"`
-	Path      string            `json:"path"`
-	Enabled   bool              `json:"enabled"`
-	Headers   map[string]string `json:"headers"`
-	SortOrder int               `json:"sort_order"`
-	UpdatedAt time.Time         `json:"updated_at"`
-}
-
-type APITypeInput struct {
-	Name    string            `json:"name"`
-	Path    string            `json:"path"`
-	Enabled *bool             `json:"enabled"`
-	Headers map[string]string `json:"headers"`
 }
 
 // ProviderModel is one upstream model exposed by a provider.

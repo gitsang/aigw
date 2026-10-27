@@ -2,43 +2,44 @@ package store
 
 import "testing"
 
-func TestChooseAPIType(t *testing.T) {
-	all := []string{APIChatCompletions, APIResponses, APIMessages}
+func TestChooseAPITypePrecedence(t *testing.T) {
 	tests := []struct {
-		name      string
-		supported []string
-		enabled   []string
-		inbound   string
-		want      string
+		name          string
+		modelTypes    []string
+		providerTypes []string
+		inbound       string
+		want          string
 	}{
-		{"same protocol wins", []string{APIMessages, APIChatCompletions}, all, APIMessages, APIMessages},
-		{"fallback to first supported", []string{APIMessages}, all, APIChatCompletions, APIMessages},
-		{"empty model uses global", nil, []string{APIResponses, APIChatCompletions}, APIChatCompletions, APIChatCompletions},
-		{"empty model first global", nil, []string{APIResponses}, APIChatCompletions, APIResponses},
-		{"no config defaults chat", nil, nil, APIResponses, APIChatCompletions},
+		{"model wins over provider", []string{APIMessages}, []string{APIChatCompletions}, APIChatCompletions, APIMessages},
+		{"model keeps inbound when supported", []string{APIChatCompletions, APIMessages}, nil, APIMessages, APIMessages},
+		{"provider used when model unset", nil, []string{APIResponses, APIChatCompletions}, APIChatCompletions, APIChatCompletions},
+		{"provider first when inbound unsupported", nil, []string{APIResponses}, APIChatCompletions, APIResponses},
+		{"builtin defaults when both unset", nil, nil, APIMessages, APIMessages},
+		{"builtin first when inbound unknown", nil, nil, "", APIChatCompletions},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ChooseAPIType(tt.supported, tt.enabled, tt.inbound); got != tt.want {
-				t.Fatalf("ChooseAPIType=%q want %q", got, tt.want)
+			if got := ChooseAPIType(tt.modelTypes, tt.providerTypes, tt.inbound); got != tt.want {
+				t.Fatalf("ChooseAPIType()=%q want %q", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestResolvePath(t *testing.T) {
-	defaults := map[string]APITypeDef{
-		APIChatCompletions: {Name: APIChatCompletions, Path: "/v1/chat/completions"},
-		APIMessages:        {Name: APIMessages, Path: "/v1/messages"},
+func TestResolvePathPrecedence(t *testing.T) {
+	provider := map[string]string{APIMessages: "/provider/messages"}
+	model := map[string]string{APIMessages: "/model/messages"}
+	if got := ResolvePath(model, provider, APIMessages); got != "/model/messages" {
+		t.Fatalf("model override = %q", got)
 	}
-	if got := ResolvePath(nil, defaults, APIMessages); got != "/v1/messages" {
-		t.Fatalf("default path = %q", got)
+	if got := ResolvePath(nil, provider, APIMessages); got != "/provider/messages" {
+		t.Fatalf("provider override = %q", got)
 	}
-	if got := ResolvePath(map[string]string{APIMessages: "/anthropic/v1/messages"}, defaults, APIMessages); got != "/anthropic/v1/messages" {
-		t.Fatalf("override path = %q", got)
+	if got := ResolvePath(nil, nil, APIMessages); got != "/v1/messages" {
+		t.Fatalf("builtin default = %q", got)
 	}
-	if got := ResolvePath(nil, defaults, APIResponses); got != "/v1/responses" {
-		t.Fatalf("builtin fallback = %q", got)
+	if got := ResolvePath(nil, provider, APIChatCompletions); got != "/v1/chat/completions" {
+		t.Fatalf("unrelated override leaked = %q", got)
 	}
 }
 
@@ -61,5 +62,15 @@ func TestNormalizeModelInput(t *testing.T) {
 	}
 	if _, err := normalizeModelInput(ProviderModelInput{ModelID: ""}); err == nil {
 		t.Fatal("expected empty model_id error")
+	}
+}
+
+func TestNormalizeProviderAPITypesKeepsEmpty(t *testing.T) {
+	if got := normalizeAPITypesOrEmpty(nil); len(got) != 0 {
+		t.Fatalf("empty provider types should stay unset, got %v", got)
+	}
+	got := normalizeAPITypesOrEmpty([]string{"messages", "messages", "bogus"})
+	if len(got) != 2 || got[0] != APIMessages || got[1] != APIChatCompletions {
+		t.Fatalf("bad normalization: %v", got)
 	}
 }

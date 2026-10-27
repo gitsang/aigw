@@ -14,17 +14,15 @@
   const blank = () => ({
     name: '', base_url: '', auth_type: 'bearer', api_key: '', headers: {},
     health_check_url: '', health_check_method: 'POST', timeout_ms: 120000,
-    input_price_per_million: 0, output_price_per_million: 0, enabled: true
+    input_price_per_million: 0, output_price_per_million: 0,
+    api_types: ['chat.completions', 'responses', 'messages'], path_overrides: {},
+    enabled: true
   });
   const blankModel = () => ({ model_id: '', display_name: '', api_types: ['chat.completions'], path_overrides: {}, enabled: true });
 
   let providers = [];
-  let apiTypes = [];
   let loading = true;
   let error = '';
-  let apiTypesOpen = false;
-  let apiTypesDraft = [];
-  let savingApiTypes = false;
 
   let modalOpen = false;
   let editingId = null;
@@ -52,7 +50,7 @@
     loading = true;
     error = '';
     try {
-      [providers, apiTypes] = await Promise.all([api('/api/admin/providers'), api('/api/admin/api-types')]);
+      providers = await api('/api/admin/providers');
     } catch (e) {
       error = e.message;
     } finally {
@@ -74,6 +72,7 @@
       headers: p.headers || {}, health_check_url: p.health_check_url || '',
       health_check_method: p.health_check_method || 'POST', timeout_ms: p.timeout_ms,
       input_price_per_million: p.input_price_per_million, output_price_per_million: p.output_price_per_million,
+      api_types: [...(p.api_types || [])], path_overrides: { ...(p.path_overrides || {}) },
       enabled: p.enabled
     };
     headersText = JSON.stringify(p.headers || {}, null, 2);
@@ -115,29 +114,6 @@
     }
   }
 
-  // ---------- global API types ----------
-  function openApiTypes() {
-    apiTypesDraft = apiTypes.map((t) => ({ ...t, headers: t.headers || {} }));
-    apiTypesOpen = true;
-  }
-  async function saveApiTypes() {
-    savingApiTypes = true;
-    try {
-      apiTypes = await api('/api/admin/api-types', {
-        method: 'PUT',
-        body: JSON.stringify({ types: apiTypesDraft.map((t) => ({ name: t.name, path: t.path, enabled: t.enabled, headers: t.headers || {} })) })
-      });
-      toast('全局 API 配置已保存');
-      apiTypesOpen = false;
-    } catch (e) {
-      toast(e.message, 'error');
-    } finally {
-      savingApiTypes = false;
-    }
-  }
-  function apiTypeLabel(name) { return PROTOCOLS.find(([v]) => v === name)?.[1] || name; }
-  function apiTypePath(name) { return apiTypes.find((t) => t.name === name)?.path || PROTOCOLS.find(([v]) => v === name)?.[2] || ''; }
-
   // ---------- provider models ----------
   async function openModels(p) {
     modelsProvider = p;
@@ -173,6 +149,8 @@
   function openAddModel() {
     modelEditingId = null;
     modelForm = blankModel();
+    modelForm.api_types = [];
+    modelForm.path_overrides = {};
     modelFormOpen = true;
   }
   function openEditModel(m) {
@@ -238,40 +216,6 @@
 
 {#if error}<div class="alert">{error}</div>{/if}
 
-<section class="panel api-types">
-  <button class="global-head" type="button" on:click={() => (apiTypesOpen ? (apiTypesOpen = false) : openApiTypes())}>
-    <div>
-      <h2>全局 API 配置</h2>
-      <p>定义网关支持的上游协议及默认 Path。模型未覆盖时使用这里的配置。</p>
-    </div>
-    <span class="chev">{apiTypesOpen ? '收起' : '配置'}</span>
-  </button>
-  {#if apiTypesOpen}
-    <div class="api-type-table">
-      {#each apiTypesDraft as t}
-        <div class="api-type-row">
-          <label class="check"><input type="checkbox" bind:checked={t.enabled} /> 启用</label>
-          <div class="proto">
-            <b>{apiTypeLabel(t.name)}</b>
-            <span class="mono">{t.name}</span>
-          </div>
-          <div class="field"><label for={`gpath-${t.name}`}>默认 Path</label><input id={`gpath-${t.name}`} class="input mono" bind:value={t.path} /></div>
-        </div>
-      {/each}
-      <div class="api-type-actions">
-        <button class="btn ghost" type="button" on:click={() => (apiTypesOpen = false)}>取消</button>
-        <button class="btn primary" type="button" on:click={saveApiTypes} disabled={savingApiTypes}>{savingApiTypes ? '保存中…' : '保存全局配置'}</button>
-      </div>
-    </div>
-  {:else}
-    <div class="api-type-chips">
-      {#each apiTypes as t}
-        <span class="chip" class:disabled={!t.enabled}><b>{apiTypeLabel(t.name)}</b><span class="mono">{t.path}</span>{#if !t.enabled}<i>已停用</i>{/if}</span>
-      {/each}
-    </div>
-  {/if}
-</section>
-
 <section class="grid">
   {#if loading}
     <div class="empty" style="grid-column:1/-1"><div class="spinner" style="margin:auto"></div></div>
@@ -292,6 +236,7 @@
           <div><dt>超时</dt><dd>{Math.round((p.timeout_ms || 0) / 1000)}s</dd></div>
           <div><dt>健康 Target</dt><dd><span class={p.healthy_targets === p.total_targets ? 'ok' : 'warn'}>{p.healthy_targets}/{p.total_targets}</span></dd></div>
           <div><dt>单价 / 1M</dt><dd class="mono">${p.input_price_per_million} in · ${p.output_price_per_million} out</dd></div>
+          <div class="wide-cell"><dt>支持的 API 类型</dt><dd>{providerProtocolSummary(p)}</dd></div>
         </dl>
         <div class="actions">
           <button class="btn sm primary-lite" on:click={() => openModels(p)}>模型管理</button>
@@ -322,6 +267,25 @@
     <div class="field wide"><label for="p-health">健康检查 URL（可选，默认使用模型解析后的 Path）</label><input id="p-health" class="input" bind:value={form.health_check_url} placeholder="/v1/chat/completions 或 /health" /><div class="hint">使用 target 的 upstream model 发送 max_tokens=1 的最小请求；2xx 且无 error 字段即健康。</div></div>
     <div class="field"><label for="p-in">输入价格 / 1M tokens ($)</label><input id="p-in" class="input" type="number" step="0.000001" min="0" bind:value={form.input_price_per_million} /></div>
     <div class="field"><label for="p-out">输出价格 / 1M tokens ($)</label><input id="p-out" class="input" type="number" step="0.000001" min="0" bind:value={form.output_price_per_million} /></div>
+    <div class="field wide protocol-config">
+      <span class="field-label">该 Provider 支持的 API 类型与默认 Path</span>
+      <div class="protocol-grid">
+        {#each PROTOCOLS as [value, label, defaultPath]}
+          <div class="protocol-item" class:off={!form.api_types.includes(value)}>
+            <label class="check">
+              <input type="checkbox" checked={form.api_types.includes(value)} on:change={() => toggleProviderProtocol(value)} />
+              <span>{label}</span>
+            </label>
+            {#if form.api_types.includes(value)}
+              <input class="input mono" bind:value={form.path_overrides[value]} placeholder={defaultPath} aria-label={`${label} Path`} />
+            {:else}
+              <span class="proto-off mono">{defaultPath}</span>
+            {/if}
+          </div>
+        {/each}
+      </div>
+      <div class="hint">模型未单独配置时继承这里；模型配置会覆盖 Provider 配置。</div>
+    </div>
     <div class="field wide"><label for="p-headers">额外 Headers (JSON)</label><textarea id="p-headers" class="textarea mono" bind:value={headersText} placeholder={headersPlaceholder}></textarea></div>
     <label class="check wide"><input type="checkbox" bind:checked={form.enabled} /> 启用该 Provider</label>
   </div>
@@ -353,11 +317,12 @@
         {#each PROTOCOLS as [value, label]}
           <label class="check"><input type="checkbox" checked={modelForm.api_types.includes(value)} on:change={() => toggleModelProtocol(value)} /> <span>{label}</span></label>
         {/each}
+        <span class="inherit-hint">全部不勾选 = 继承 Provider 配置</span>
       </div>
       {#if modelForm.api_types.length}
         <div class="path-overrides">
           {#each modelForm.api_types as t}
-            <div class="field"><label for={`mo-${t}`}>{apiTypeLabel(t)} Path 覆盖</label><input id={`mo-${t}`} class="input mono" bind:value={modelForm.path_overrides[t]} placeholder={apiTypePath(t)} /></div>
+            <div class="field"><label for={`mo-${t}`}>{apiTypeLabel(t)} Path 覆盖</label><input id={`mo-${t}`} class="input mono" bind:value={modelForm.path_overrides[t]} placeholder={providerPath(modelsProvider, t)} /></div>
           {/each}
         </div>
       {/if}
@@ -383,7 +348,7 @@
               {#if !m.enabled}<Badge tone="neutral">停用</Badge>{/if}
             </div>
             <div class="model-meta">
-              <span>协议：{m.api_types?.length ? m.api_types.map(apiTypeLabel).join(' / ') : '跟随全局'}</span>
+              <span>协议：{m.api_types?.length ? m.api_types.map(apiTypeLabel).join(' / ') : `继承 Provider（${providerProtocolSummary(modelsProvider)}）`}</span>
               {#if m.path_overrides && Object.keys(m.path_overrides).length}
                 {#each Object.entries(m.path_overrides) as [k, v]}<span class="mono override">{apiTypeLabel(k)}: {v}</span>{/each}
               {/if}
@@ -411,21 +376,14 @@
   .page-head p { margin: 6px 0 0; color: #64748b; font-size: 13px; max-width: 720px; line-height: 1.55; }
   .alert { background: #fef2f2; color: #b91c1c; border-radius: 9px; padding: 11px 14px; margin-bottom: 15px; font-size: 13px; }
 
-  .api-types { padding: 16px 18px; margin-bottom: 16px; }
-  .global-head { display: flex; justify-content: space-between; align-items: center; width: 100%; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
-  .global-head h2 { margin: 0; font-size: 14px; }
-  .global-head p { margin: 5px 0 0; color: #64748b; font-size: 12px; }
-  .chev { color: #2563eb; font-size: 12px; font-weight: 650; }
-  .api-type-chips { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 13px; }
-  .api-type-chips .chip { gap: 8px; padding: 5px 10px; background: #eff6ff; color: #1e40af; }
-  .api-type-chips .chip b { font-size: 11.5px; }
-  .api-type-chips .chip.disabled { background: #f1f5f9; color: #94a3b8; }
-  .api-type-chips .chip i { font-style: normal; font-size: 10px; }
-  .api-type-table { margin-top: 14px; border-top: 1px solid #eef2f7; padding-top: 13px; display: flex; flex-direction: column; gap: 9px; }
-  .api-type-row { display: grid; grid-template-columns: 90px 160px 1fr; gap: 14px; align-items: end; }
-  .proto b { display: block; font-size: 12.5px; }
-  .proto span { color: #94a3b8; font-size: 10.5px; }
-  .api-type-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+  .protocol-config { gap: 9px; padding: 12px; border: 1px solid #e2e8f0; border-radius: 10px; background: #f8fafc; }
+  .field-label { font-size: 12px; color: #475569; font-weight: 650; }
+  .protocol-grid { display: flex; flex-direction: column; gap: 8px; }
+  .protocol-item { display: grid; grid-template-columns: 150px 1fr; gap: 10px; align-items: center; }
+  .protocol-item.off { opacity: .6; }
+  .proto-off { font-size: 11.5px; color: #94a3b8; }
+  .wide-cell { grid-column: 1 / -1; }
+  .inherit-hint { font-size: 10.5px; color: #94a3b8; }
 
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
   .provider { padding: 17px; display: flex; flex-direction: column; }
@@ -465,7 +423,6 @@
   code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; }
   @media (max-width: 700px) {
     .form-grid, .mf-grid, .path-overrides { grid-template-columns: 1fr; }
-    .api-type-row { grid-template-columns: 1fr; }
     .models-head { flex-direction: column; }
     .wide { grid-column: auto; }
   }
