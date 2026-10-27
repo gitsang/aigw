@@ -152,8 +152,7 @@ func (s *Store) ListProviders(ctx context.Context) ([]Provider, error) {
 	rows, err := s.pool.Query(ctx, `
 SELECT p.id, p.name, p.base_url, p.auth_type, p.api_key_last4,
        (p.api_key_ciphertext <> ''), p.headers, p.health_check_url, p.health_check_method,
-       p.timeout_ms, p.input_price_per_million::float8, p.output_price_per_million::float8,
-       p.api_types, p.path_overrides,
+       p.timeout_ms, p.api_types, p.path_overrides,
        p.enabled, p.created_at, p.updated_at,
        COUNT(t.id) FILTER (WHERE t.enabled)::int,
        COUNT(t.id) FILTER (WHERE t.enabled AND COALESCE(h.healthy, TRUE))::int
@@ -181,7 +180,7 @@ func scanProvider(row rowScanner) (Provider, error) {
 	var headers, pathOverrides []byte
 	err := row.Scan(&p.ID, &p.Name, &p.BaseURL, &p.AuthType, &p.APIKeyLast4, &p.HasAPIKey,
 		&headers, &p.HealthCheckURL, &p.HealthCheckMethod, &p.TimeoutMS,
-		&p.InputPricePerMillion, &p.OutputPricePerMillion, &p.APITypes, &pathOverrides,
+		&p.APITypes, &pathOverrides,
 		&p.Enabled, &p.CreatedAt, &p.UpdatedAt, &p.TotalTargets, &p.HealthyTargets)
 	if err != nil {
 		return p, err
@@ -200,8 +199,7 @@ func scanProvider(row rowScanner) (Provider, error) {
 const providerSelect = `
 SELECT p.id, p.name, p.base_url, p.auth_type, p.api_key_last4,
        (p.api_key_ciphertext <> ''), p.headers, p.health_check_url, p.health_check_method,
-       p.timeout_ms, p.input_price_per_million::float8, p.output_price_per_million::float8,
-       p.api_types, p.path_overrides,
+       p.timeout_ms, p.api_types, p.path_overrides,
        p.enabled, p.created_at, p.updated_at,
        COUNT(t.id) FILTER (WHERE t.enabled)::int,
        COUNT(t.id) FILTER (WHERE t.enabled AND COALESCE(h.healthy, TRUE))::int
@@ -230,13 +228,12 @@ func (s *Store) CreateProvider(ctx context.Context, in ProviderInput) (Provider,
 	var id string
 	err = s.pool.QueryRow(ctx, `
 INSERT INTO providers (name, base_url, auth_type, api_key_ciphertext, api_key_last4, headers,
-health_check_url, health_check_method, timeout_ms, input_price_per_million,
-output_price_per_million, api_types, path_overrides, enabled)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+health_check_url, health_check_method, timeout_ms, api_types, path_overrides, enabled)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
 		in.Name, in.BaseURL, normalizeAuthType(in.AuthType), enc, last4, marshalHeaders(in.Headers),
 		in.HealthCheckURL, normalizeHealthMethod(in.HealthCheckMethod), normalizeTimeout(in.TimeoutMS),
-		in.InputPricePerMillion, in.OutputPricePerMillion, normalizeAPITypesOrEmpty(in.APITypes),
-		marshalHeaders(in.PathOverrides), boolOr(in.Enabled, true)).Scan(&id)
+		normalizeAPITypesOrEmpty(in.APITypes), marshalHeaders(in.PathOverrides),
+		boolOr(in.Enabled, true)).Scan(&id)
 	if err != nil {
 		return Provider{}, err
 	}
@@ -257,14 +254,12 @@ UPDATE providers SET name=$2, base_url=$3, auth_type=$4,
 api_key_ciphertext=CASE WHEN $5::text='' THEN api_key_ciphertext ELSE $5 END,
 api_key_last4=CASE WHEN $5::text='' THEN api_key_last4 ELSE $6 END,
 headers=$7, health_check_url=$8, health_check_method=$9, timeout_ms=$10,
-input_price_per_million=$11, output_price_per_million=$12,
-api_types=$13, path_overrides=$14, enabled=$15
+api_types=$11, path_overrides=$12, enabled=$13
 WHERE id=$1`,
 		id, in.Name, in.BaseURL, normalizeAuthType(in.AuthType), enc, last4,
 		marshalHeaders(in.Headers), in.HealthCheckURL, normalizeHealthMethod(in.HealthCheckMethod),
-		normalizeTimeout(in.TimeoutMS), in.InputPricePerMillion, in.OutputPricePerMillion,
-		normalizeAPITypesOrEmpty(in.APITypes), marshalHeaders(in.PathOverrides),
-		boolOr(in.Enabled, true))
+		normalizeTimeout(in.TimeoutMS), normalizeAPITypesOrEmpty(in.APITypes),
+		marshalHeaders(in.PathOverrides), boolOr(in.Enabled, true))
 	if err != nil {
 		return Provider{}, err
 	}

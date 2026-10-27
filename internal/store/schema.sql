@@ -9,8 +9,6 @@ CREATE TABLE IF NOT EXISTS providers (
     health_check_url TEXT NOT NULL DEFAULT '',
     health_check_method TEXT NOT NULL DEFAULT 'POST',
     timeout_ms INTEGER NOT NULL DEFAULT 120000 CHECK (timeout_ms > 0),
-    input_price_per_million NUMERIC(14,6) NOT NULL DEFAULT 0,
-    output_price_per_million NUMERIC(14,6) NOT NULL DEFAULT 0,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     api_types TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
     path_overrides JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -20,6 +18,8 @@ CREATE TABLE IF NOT EXISTS providers (
 
 ALTER TABLE providers ADD COLUMN IF NOT EXISTS api_types TEXT[] NOT NULL DEFAULT '{}'::TEXT[];
 ALTER TABLE providers ADD COLUMN IF NOT EXISTS path_overrides JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE providers DROP COLUMN IF EXISTS input_price_per_million;
+ALTER TABLE providers DROP COLUMN IF EXISTS output_price_per_million;
 
 CREATE TABLE IF NOT EXISTS routing_rules (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -114,11 +114,15 @@ CREATE TABLE IF NOT EXISTS provider_models (
     source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'discovered')),
     api_types TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
     path_overrides JSONB NOT NULL DEFAULT '{}'::jsonb,
+    input_price_per_million NUMERIC(14,6) NOT NULL DEFAULT 0,
+    output_price_per_million NUMERIC(14,6) NOT NULL DEFAULT 0,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (provider_id, model_id)
 );
+ALTER TABLE provider_models ADD COLUMN IF NOT EXISTS input_price_per_million NUMERIC(14,6) NOT NULL DEFAULT 0;
+ALTER TABLE provider_models ADD COLUMN IF NOT EXISTS output_price_per_million NUMERIC(14,6) NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS idx_provider_models_provider_id ON provider_models(provider_id);
 
 ALTER TABLE routing_targets

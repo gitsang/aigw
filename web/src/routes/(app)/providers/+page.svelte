@@ -14,11 +14,10 @@
   const blank = () => ({
     name: '', base_url: '', auth_type: 'bearer', api_key: '', headers: {},
     health_check_url: '', health_check_method: 'POST', timeout_ms: 120000,
-    input_price_per_million: 0, output_price_per_million: 0,
     api_types: ['chat.completions', 'responses', 'messages'], path_overrides: {},
     enabled: true
   });
-  const blankModel = () => ({ model_id: '', display_name: '', api_types: ['chat.completions'], path_overrides: {}, enabled: true });
+  const blankModel = () => ({ model_id: '', display_name: '', api_types: ['chat.completions'], path_overrides: {}, input_price_per_million: 0, output_price_per_million: 0, enabled: true });
 
   const PROTOCOL_LABEL = Object.fromEntries(PROTOCOLS.map(([v, label]) => [v, label]));
   const PROTOCOL_DEFAULT = Object.fromEntries(PROTOCOLS.map(([v, , p]) => [v, p]));
@@ -87,7 +86,6 @@
       name: p.name, base_url: p.base_url, auth_type: p.auth_type, api_key: '',
       headers: p.headers || {}, health_check_url: p.health_check_url || '',
       health_check_method: p.health_check_method || 'POST', timeout_ms: p.timeout_ms,
-      input_price_per_million: p.input_price_per_million, output_price_per_million: p.output_price_per_million,
       api_types: [...(p.api_types || [])], path_overrides: { ...(p.path_overrides || {}) },
       enabled: p.enabled
     };
@@ -175,6 +173,8 @@
       model_id: m.model_id, display_name: m.display_name || m.model_id,
       api_types: [...(m.api_types || [])],
       path_overrides: { ...(m.path_overrides || {}) },
+      input_price_per_million: m.input_price_per_million || 0,
+      output_price_per_million: m.output_price_per_million || 0,
       enabled: m.enabled
     };
     modelFormOpen = true;
@@ -251,7 +251,6 @@
           <div><dt>认证</dt><dd>{authLabel[p.auth_type] || p.auth_type} {#if p.has_api_key}<span class="mono muted">••••{p.api_key_last4}</span>{/if}</dd></div>
           <div><dt>超时</dt><dd>{Math.round((p.timeout_ms || 0) / 1000)}s</dd></div>
           <div><dt>健康 Target</dt><dd><span class={p.healthy_targets === p.total_targets ? 'ok' : 'warn'}>{p.healthy_targets}/{p.total_targets}</span></dd></div>
-          <div><dt>单价 / 1M</dt><dd class="mono">${p.input_price_per_million} in · ${p.output_price_per_million} out</dd></div>
           <div class="wide-cell"><dt>支持的 API 类型</dt><dd>{providerProtocolSummary(p)}</dd></div>
         </dl>
         <div class="actions">
@@ -281,8 +280,6 @@
       <select id="p-health-method" class="select" bind:value={form.health_check_method}><option value="POST">POST</option><option value="GET">GET</option></select>
     </div>
     <div class="field wide"><label for="p-health">健康检查 URL（可选，默认使用模型解析后的 Path）</label><input id="p-health" class="input" bind:value={form.health_check_url} placeholder="/v1/chat/completions 或 /health" /><div class="hint">使用 target 的 upstream model 发送 max_tokens=1 的最小请求；2xx 且无 error 字段即健康。</div></div>
-    <div class="field"><label for="p-in">输入价格 / 1M tokens ($)</label><input id="p-in" class="input" type="number" step="0.000001" min="0" bind:value={form.input_price_per_million} /></div>
-    <div class="field"><label for="p-out">输出价格 / 1M tokens ($)</label><input id="p-out" class="input" type="number" step="0.000001" min="0" bind:value={form.output_price_per_million} /></div>
     <div class="field wide protocol-config">
       <span class="field-label">该 Provider 支持的 API 类型与默认 Path</span>
       <div class="protocol-grid">
@@ -327,6 +324,8 @@
       <div class="mf-grid">
         <div class="field"><label for="m-id">Model ID（上游真实名称）</label><input id="m-id" class="input mono" bind:value={modelForm.model_id} placeholder="deepseek/deepseek-flash" /></div>
         <div class="field"><label for="m-name">显示名称</label><input id="m-name" class="input" bind:value={modelForm.display_name} placeholder="可选" /></div>
+        <div class="field"><label for="m-in">输入价格 / 1M tokens ($)</label><input id="m-in" class="input" type="number" step="0.000001" min="0" bind:value={modelForm.input_price_per_million} /></div>
+        <div class="field"><label for="m-out">输出价格 / 1M tokens ($)</label><input id="m-out" class="input" type="number" step="0.000001" min="0" bind:value={modelForm.output_price_per_million} /></div>
       </div>
       <div class="proto-select">
         <span class="pf-label">支持的 API 类型</span>
@@ -368,6 +367,7 @@
               {#if m.path_overrides && Object.keys(m.path_overrides).length}
                 {#each Object.entries(m.path_overrides) as [k, v]}<span class="mono override">{apiTypeLabel(k)}: {v}</span>{/each}
               {/if}
+              <span class="mono price">${m.input_price_per_million || 0} in / ${m.output_price_per_million || 0} out · 1M</span>
             </div>
           </div>
           <div class="model-row-actions">
@@ -435,6 +435,7 @@
   .model-title b { font-size: 12.5px; }
   .model-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 5px; color: #64748b; font-size: 11px; }
   .override { background: #f1f5f9; border-radius: 4px; padding: 1px 5px; }
+  .price { color: #047857; }
   .model-row-actions { display: flex; gap: 6px; flex-shrink: 0; }
   code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; }
   @media (max-width: 700px) {

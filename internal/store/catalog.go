@@ -98,6 +98,7 @@ func ResolvePath(modelOverrides, providerOverrides map[string]string, apiType st
 
 const providerModelSelect = `
 SELECT id, provider_id, model_id, display_name, source, api_types, path_overrides,
+       input_price_per_million::float8, output_price_per_million::float8,
        enabled, created_at, updated_at
 FROM provider_models`
 
@@ -105,7 +106,8 @@ func scanProviderModel(row rowScanner) (ProviderModel, error) {
 	var m ProviderModel
 	var overrides []byte
 	err := row.Scan(&m.ID, &m.ProviderID, &m.ModelID, &m.DisplayName, &m.Source,
-		&m.APITypes, &overrides, &m.Enabled, &m.CreatedAt, &m.UpdatedAt)
+		&m.APITypes, &overrides, &m.InputPricePerMillion, &m.OutputPricePerMillion,
+		&m.Enabled, &m.CreatedAt, &m.UpdatedAt)
 	if err != nil {
 		return m, err
 	}
@@ -194,10 +196,10 @@ func (s *Store) CreateProviderModel(ctx context.Context, providerID string, in P
 	var id string
 	err = s.pool.QueryRow(ctx, `
 INSERT INTO provider_models (provider_id, model_id, display_name, source, api_types,
-path_overrides, enabled)
-VALUES ($1,$2,$3,'manual',$4,$5,$6) RETURNING id`,
-		providerID, in.ModelID, in.DisplayName, in.APITypes,
-		marshalHeaders(in.PathOverrides), boolOr(in.Enabled, true)).Scan(&id)
+path_overrides, input_price_per_million, output_price_per_million, enabled)
+VALUES ($1,$2,$3,'manual',$4,$5,$6,$7,$8) RETURNING id`,
+		providerID, in.ModelID, in.DisplayName, in.APITypes, marshalHeaders(in.PathOverrides),
+		in.InputPricePerMillion, in.OutputPricePerMillion, boolOr(in.Enabled, true)).Scan(&id)
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
 			return ProviderModel{}, fmt.Errorf("%w: model %q already exists for this provider", ErrConflict, in.ModelID)
@@ -214,10 +216,10 @@ func (s *Store) UpdateProviderModel(ctx context.Context, providerID, id string, 
 	}
 	cmd, err := s.pool.Exec(ctx, `
 UPDATE provider_models SET model_id=$3, display_name=$4, api_types=$5,
-path_overrides=$6, enabled=$7
+path_overrides=$6, input_price_per_million=$7, output_price_per_million=$8, enabled=$9
 WHERE id=$1 AND provider_id=$2`,
-		id, providerID, in.ModelID, in.DisplayName, in.APITypes,
-		marshalHeaders(in.PathOverrides), boolOr(in.Enabled, true))
+		id, providerID, in.ModelID, in.DisplayName, in.APITypes, marshalHeaders(in.PathOverrides),
+		in.InputPricePerMillion, in.OutputPricePerMillion, boolOr(in.Enabled, true))
 	if err != nil {
 		return ProviderModel{}, err
 	}
@@ -308,7 +310,8 @@ func (s *Store) ResolveTarget(ctx context.Context, targetID, inboundAPIType stri
 SELECT t.id, t.rule_id, t.role, p.id, p.name, p.base_url, p.auth_type,
        p.api_key_ciphertext, p.headers, p.timeout_ms, t.upstream_model, t.api_types,
        t.weight, t.priority,
-       p.input_price_per_million::float8, p.output_price_per_million::float8,
+       COALESCE(pm.input_price_per_million,0)::float8,
+       COALESCE(pm.output_price_per_million,0)::float8,
        p.api_types, p.path_overrides,
        COALESCE(pm.model_id,''), COALESCE(pm.api_types,'{}'::text[]),
        COALESCE(pm.path_overrides,'{}'::jsonb)

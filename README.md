@@ -35,6 +35,8 @@ checks, retries/fallbacks, and a SvelteKit management console.
   - Only a SHA-256 hash is stored; the plaintext key is shown exactly once.
   - Optional app label, allowed-model allowlist, expiry time and enable flag.
   - Provider secrets are encrypted at rest with AES-256-GCM.
+- **Cost accounting** — pricing is per model (input/output per 1M tokens); each log
+  row stores computed cost based on the model actually used.
 - **Observability**
   - Full request log: time, ApiType, model, upstream model, app, API key name,
     provider, route, status, latency, prompt/completion/total tokens, cost,
@@ -160,7 +162,8 @@ Protocol configuration is **per provider**, not global:
    API type. Empty list means the built-in defaults (all three).
 2. **Model level** — models exist only under a provider. They can be pulled from the
    provider's OpenAI-compatible `GET /models` endpoint or added manually. Every model
-   may override the provider's API types and add a path override per API type.
+   may override the provider's API types, add a path override per API type, and
+   carries its own **input/output price per 1M tokens** used for cost accounting.
 3. **Routing target** — only selects a provider + one of its models (plus role and
    weight). Protocol and path are resolved automatically.
 

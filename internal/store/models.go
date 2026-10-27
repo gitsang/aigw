@@ -14,41 +14,37 @@ const (
 )
 
 type Provider struct {
-	ID                    string            `json:"id"`
-	Name                  string            `json:"name"`
-	BaseURL               string            `json:"base_url"`
-	AuthType              string            `json:"auth_type"`
-	APIKeyLast4           string            `json:"api_key_last4"`
-	HasAPIKey             bool              `json:"has_api_key"`
-	Headers               map[string]string `json:"headers"`
-	HealthCheckURL        string            `json:"health_check_url"`
-	HealthCheckMethod     string            `json:"health_check_method"`
-	TimeoutMS             int               `json:"timeout_ms"`
-	InputPricePerMillion  float64           `json:"input_price_per_million"`
-	OutputPricePerMillion float64           `json:"output_price_per_million"`
-	APITypes              []string          `json:"api_types"`
-	PathOverrides         map[string]string `json:"path_overrides"`
-	Enabled               bool              `json:"enabled"`
-	CreatedAt             time.Time         `json:"created_at"`
-	UpdatedAt             time.Time         `json:"updated_at"`
-	HealthyTargets        int               `json:"healthy_targets,omitempty"`
-	TotalTargets          int               `json:"total_targets,omitempty"`
+	ID                string            `json:"id"`
+	Name              string            `json:"name"`
+	BaseURL           string            `json:"base_url"`
+	AuthType          string            `json:"auth_type"`
+	APIKeyLast4       string            `json:"api_key_last4"`
+	HasAPIKey         bool              `json:"has_api_key"`
+	Headers           map[string]string `json:"headers"`
+	HealthCheckURL    string            `json:"health_check_url"`
+	HealthCheckMethod string            `json:"health_check_method"`
+	TimeoutMS         int               `json:"timeout_ms"`
+	APITypes          []string          `json:"api_types"`
+	PathOverrides     map[string]string `json:"path_overrides"`
+	Enabled           bool              `json:"enabled"`
+	CreatedAt         time.Time         `json:"created_at"`
+	UpdatedAt         time.Time         `json:"updated_at"`
+	HealthyTargets    int               `json:"healthy_targets,omitempty"`
+	TotalTargets      int               `json:"total_targets,omitempty"`
 }
 
 type ProviderInput struct {
-	Name                  string            `json:"name"`
-	BaseURL               string            `json:"base_url"`
-	AuthType              string            `json:"auth_type"`
-	APIKey                string            `json:"api_key"`
-	Headers               map[string]string `json:"headers"`
-	HealthCheckURL        string            `json:"health_check_url"`
-	HealthCheckMethod     string            `json:"health_check_method"`
-	TimeoutMS             int               `json:"timeout_ms"`
-	InputPricePerMillion  float64           `json:"input_price_per_million"`
-	OutputPricePerMillion float64           `json:"output_price_per_million"`
-	APITypes              []string          `json:"api_types"`
-	PathOverrides         map[string]string `json:"path_overrides"`
-	Enabled               *bool             `json:"enabled"`
+	Name              string            `json:"name"`
+	BaseURL           string            `json:"base_url"`
+	AuthType          string            `json:"auth_type"`
+	APIKey            string            `json:"api_key"`
+	Headers           map[string]string `json:"headers"`
+	HealthCheckURL    string            `json:"health_check_url"`
+	HealthCheckMethod string            `json:"health_check_method"`
+	TimeoutMS         int               `json:"timeout_ms"`
+	APITypes          []string          `json:"api_types"`
+	PathOverrides     map[string]string `json:"path_overrides"`
+	Enabled           *bool             `json:"enabled"`
 }
 
 type RouteTarget struct {
@@ -122,24 +118,28 @@ type RouteTargetInput struct {
 
 // ProviderModel is one upstream model exposed by a provider.
 type ProviderModel struct {
-	ID            string            `json:"id"`
-	ProviderID    string            `json:"provider_id"`
-	ModelID       string            `json:"model_id"`
-	DisplayName   string            `json:"display_name"`
-	Source        string            `json:"source"`
-	APITypes      []string          `json:"api_types"`
-	PathOverrides map[string]string `json:"path_overrides"`
-	Enabled       bool              `json:"enabled"`
-	CreatedAt     time.Time         `json:"created_at"`
-	UpdatedAt     time.Time         `json:"updated_at"`
+	ID                    string            `json:"id"`
+	ProviderID            string            `json:"provider_id"`
+	ModelID               string            `json:"model_id"`
+	DisplayName           string            `json:"display_name"`
+	Source                string            `json:"source"`
+	APITypes              []string          `json:"api_types"`
+	PathOverrides         map[string]string `json:"path_overrides"`
+	InputPricePerMillion  float64           `json:"input_price_per_million"`
+	OutputPricePerMillion float64           `json:"output_price_per_million"`
+	Enabled               bool              `json:"enabled"`
+	CreatedAt             time.Time         `json:"created_at"`
+	UpdatedAt             time.Time         `json:"updated_at"`
 }
 
 type ProviderModelInput struct {
-	ModelID       string            `json:"model_id"`
-	DisplayName   string            `json:"display_name"`
-	APITypes      []string          `json:"api_types"`
-	PathOverrides map[string]string `json:"path_overrides"`
-	Enabled       *bool             `json:"enabled"`
+	ModelID               string            `json:"model_id"`
+	DisplayName           string            `json:"display_name"`
+	APITypes              []string          `json:"api_types"`
+	PathOverrides         map[string]string `json:"path_overrides"`
+	InputPricePerMillion  float64           `json:"input_price_per_million"`
+	OutputPricePerMillion float64           `json:"output_price_per_million"`
+	Enabled               *bool             `json:"enabled"`
 }
 
 // APITypeResolution is the effective protocol/path for one model or target.
