@@ -205,34 +205,35 @@
   .actions { display: flex; align-items: center; gap: 12px; }
   .live { font-size: 11.5px; color: #64748b; display: flex; align-items: center; gap: 6px; }
   .live i { width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 0 3px #d1fae5; }
-  .range-tabs { display: inline-flex; gap: 4px; background: #eef2f7; border-radius: 9px; padding: 3px; margin-bottom: 16px; }
-  .range-tabs button { border: 0; background: transparent; border-radius: 7px; padding: 6px 12px; font-size: 12px; color: #64748b; cursor: pointer; }
-  .range-tabs button.active { background: #fff; color: #0f172a; box-shadow: 0 1px 4px rgba(15,23,42,.1); font-weight: 650; }
+  .range-tabs { display: inline-flex; gap: 0; background: #e4eaf2; border: 1px solid #d5dfeb; border-radius: 0; padding: 0; margin-bottom: 14px; }
+  .range-tabs button { border: 0; border-right: 1px solid #d5dfeb; background: transparent; border-radius: 0; padding: 5px 12px; font-size: 12px; color: #64748b; cursor: pointer; }
+  .range-tabs button:last-child { border-right: 0; }
+  .range-tabs button.active { background: #fff; color: #0f172a; font-weight: 650; }
   .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
   .charts { display: grid; grid-template-columns: 1.45fr 1fr; gap: 14px; margin-bottom: 16px; }
-  .panel-title { display: flex; justify-content: space-between; align-items: baseline; padding: 15px 17px 10px; }
+  .panel-title { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 14px 9px; }
   .panel-title h2 { margin: 0; font-size: 13.5px; }
   .panel-title span { font-size: 11px; color: #94a3b8; }
   .chart { padding-bottom: 10px; }
-  .bars { height: 150px; display: flex; align-items: flex-end; gap: 5px; padding: 8px 17px 0; }
+  .bars { height: 150px; display: flex; align-items: flex-end; gap: 4px; padding: 8px 14px 0; }
   .bar-wrap { flex: 1; height: 100%; display: flex; align-items: flex-end; min-width: 5px; }
-  .bar { width: 100%; border-radius: 4px 4px 0 0; background: linear-gradient(180deg, #60a5fa, #2563eb); min-height: 4px; }
-  .axis { display: flex; justify-content: space-between; color: #94a3b8; font-size: 10px; padding: 7px 17px 0; }
-  .break-row { display: flex; align-items: center; gap: 10px; padding: 5px 17px; }
+  .bar { width: 100%; border-radius: 0; background: #2563eb; min-height: 4px; }
+  .axis { display: flex; justify-content: space-between; color: #94a3b8; font-size: 10px; padding: 7px 14px 0; }
+  .break-row { display: flex; align-items: center; gap: 10px; padding: 5px 14px; }
   .model { flex: 0 0 130px; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; }
-  .track { flex: 1; height: 6px; background: #f1f5f9; border-radius: 4px; overflow: hidden; }
-  .fill { height: 100%; background: #8b5cf6; border-radius: 4px; }
+  .track { flex: 1; height: 6px; background: #f1f5f9; border-radius: 0; overflow: hidden; }
+  .fill { height: 100%; background: #8b5cf6; border-radius: 0; }
   .count { font-size: 11.5px; color: #64748b; min-width: 30px; text-align: right; }
-  .api-types { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 17px 4px; }
+  .api-types { display: flex; gap: 5px; flex-wrap: wrap; padding: 10px 14px 4px; }
   .logs { overflow: hidden; }
-  .filters { display: grid; grid-template-columns: minmax(230px, 2fr) 1fr .7fr .7fr auto auto; gap: 8px; padding: 4px 16px 14px; }
+  .filters { display: grid; grid-template-columns: minmax(230px, 2fr) 1fr .7fr .7fr auto auto; gap: 7px; padding: 4px 14px 12px; }
   .input.narrow { min-width: 0; }
-  .error { margin: 0 16px 12px; padding: 9px 12px; background: #fef2f2; color: #b91c1c; border-radius: 8px; font-size: 12.5px; }
+  .error { margin: 0 14px 12px; padding: 8px 10px; background: #fef2f2; color: #b91c1c; border-radius: 2px; font-size: 12.5px; }
   .model-cell { font-weight: 600; }
   .sub { color: #94a3b8; font-size: 10.5px; font-weight: 400; margin-top: 2px; }
   .nowrap { white-space: nowrap; }
   .error-row td { background: #fff7f7; color: #b91c1c; font-size: 11.5px; padding-top: 0; border-bottom: 1px solid #fecaca; }
-  .pager { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; font-size: 12px; color: #64748b; }
+  .pager { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0; }
   .pager > div { display: flex; gap: 6px; }
   @media (max-width: 1200px) {
     .stats { grid-template-columns: repeat(3, 1fr); }

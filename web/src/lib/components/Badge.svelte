@@ -4,7 +4,7 @@
 </script>
 <span class="badge {tone}">{#if dot}<i></i>{/if}<slot /></span>
 <style>
-  .badge { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 2px 9px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+  .badge { display: inline-flex; align-items: center; gap: 5px; border-radius: 2px; padding: 2px 6px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
   .badge i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
   .neutral { background: #f1f5f9; color: #475569; }
   .green { background: #d1fae5; color: #047857; }

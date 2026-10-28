@@ -14,7 +14,7 @@
 {#if ready}
   <div class="shell">
     <Sidebar />
-    <main><slot /></main>
+    <main><div class="content"><slot /></div></main>
   </div>
 {:else}
   <div class="loading"><div class="spinner"></div></div>
@@ -22,10 +22,11 @@
 
 <style>
   .shell { display: flex; min-height: 100vh; }
-  main { flex: 1; min-width: 0; padding: 28px 32px 54px; max-width: 1600px; background: radial-gradient(circle at 100% 0%, #f0f7ff 0%, transparent 30%), #f5f8fc; }
+  main { flex: 1; min-width: 0; background: #eef2f7; }
+  .content { width: 100%; max-width: 1600px; padding: 20px 24px 40px; }
   .loading { min-height: 100vh; display: grid; place-items: center; }
   @media (max-width: 800px) {
     .shell { flex-direction: column; }
-    main { padding: 18px 14px 40px; }
+    .content { padding: 14px 12px 28px; }
   }
 </style>

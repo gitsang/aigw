@@ -187,7 +187,7 @@
   .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; margin-bottom: 20px; }
   h1 { margin: 0; font-size: 23px; letter-spacing: -.03em; }
   .page-head p { margin: 6px 0 0; color: #64748b; font-size: 13px; }
-  .alert { background: #fef2f2; color: #b91c1c; border-radius: 9px; padding: 11px 14px; margin-bottom: 15px; font-size: 13px; }
+  .alert { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 2px; padding: 9px 12px; margin-bottom: 12px; font-size: 13px; }
   .chips { display: flex; gap: 4px; flex-wrap: wrap; }
   .any { color: #94a3b8; font-size: 11.5px; }
   .nowrap { white-space: nowrap; }
@@ -198,7 +198,7 @@
   .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #334155; }
   .created h3 { margin: 0 0 7px; font-size: 15px; }
   .created p { margin: 0 0 14px; color: #64748b; font-size: 12.5px; }
-  .key-box { display: flex; gap: 9px; align-items: center; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 9px; padding: 11px; }
+  .key-box { display: flex; gap: 9px; align-items: center; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 2px; padding: 9px; }
   .key-box code { flex: 1; word-break: break-all; font-size: 12px; }
-  .usage { margin-top: 14px; background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; padding: 13px; border-radius: 9px; font-size: 11px; line-height: 1.8; overflow-x: auto; }
+  .usage { margin-top: 12px; background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; padding: 10px; border-radius: 2px; font-size: 11px; line-height: 1.8; overflow-x: auto; }
 </style>

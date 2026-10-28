@@ -390,9 +390,9 @@
   .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; margin-bottom: 20px; }
   h1 { margin: 0; font-size: 23px; letter-spacing: -.03em; }
   .page-head p { margin: 6px 0 0; color: #64748b; font-size: 13px; max-width: 720px; line-height: 1.55; }
-  .alert { background: #fef2f2; color: #b91c1c; border-radius: 9px; padding: 11px 14px; margin-bottom: 15px; font-size: 13px; }
+  .alert { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 2px; padding: 9px 12px; margin-bottom: 12px; font-size: 13px; }
 
-  .protocol-config { gap: 9px; padding: 12px; border: 1px solid #e2e8f0; border-radius: 10px; background: #f8fafc; }
+  .protocol-config { gap: 9px; padding: 10px; border: 1px solid #e2e8f0; border-radius: 2px; background: #f8fafc; }
   .field-label { font-size: 12px; color: #475569; font-weight: 650; }
   .protocol-grid { display: flex; flex-direction: column; gap: 8px; }
   .protocol-item { display: grid; grid-template-columns: 150px 1fr; gap: 10px; align-items: center; }
@@ -401,12 +401,12 @@
   .wide-cell { grid-column: 1 / -1; }
   .inherit-hint { font-size: 10.5px; color: #94a3b8; }
 
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
-  .provider { padding: 17px; display: flex; flex-direction: column; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+  .provider { padding: 13px 14px; border-radius: 2px; display: flex; flex-direction: column; }
   .top { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
   .name { font-weight: 700; font-size: 15px; }
   .url { color: #64748b; font-size: 11px; margin-top: 4px; word-break: break-all; }
-  dl { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 16px 0; padding: 12px 0; border-top: 1px solid #edf2f7; border-bottom: 1px solid #edf2f7; }
+  dl { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin: 12px 0; padding: 10px 0; border-top: 1px solid #edf2f7; border-bottom: 1px solid #edf2f7; }
   dt { font-size: 10.5px; color: #94a3b8; margin-bottom: 3px; }
   dd { margin: 0; font-size: 12px; font-weight: 600; }
   .muted { color: #94a3b8; font-weight: 400; }
@@ -422,22 +422,22 @@
   .models-head { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; margin-bottom: 13px; }
   .models-hint { margin: 0; color: #64748b; font-size: 12px; line-height: 1.6; }
   .models-actions { display: flex; gap: 7px; flex-shrink: 0; }
-  .model-form { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 13px; margin-bottom: 13px; display: flex; flex-direction: column; gap: 11px; }
+  .model-form { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 2px; padding: 10px; margin-bottom: 11px; display: flex; flex-direction: column; gap: 10px; }
   .mf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .proto-select { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
   .pf-label { font-size: 12px; color: #475569; font-weight: 650; }
   .path-overrides { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 9px; }
   .mf-actions { display: flex; justify-content: flex-end; gap: 7px; }
-  .model-list { border: 1px solid #eef2f7; border-radius: 10px; overflow: hidden; }
-  .model-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 11px 13px; border-bottom: 1px solid #edf2f7; }
+  .model-list { border: 1px solid #eef2f7; border-radius: 2px; overflow: hidden; }
+  .model-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 9px 11px; border-bottom: 1px solid #edf2f7; }
   .model-row:last-child { border-bottom: 0; }
   .model-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .model-title b { font-size: 12.5px; }
   .model-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 5px; color: #64748b; font-size: 11px; }
-  .override { background: #f1f5f9; border-radius: 4px; padding: 1px 5px; }
+  .override { background: #f1f5f9; border-radius: 2px; padding: 1px 4px; }
   .price { color: #047857; }
   .model-row-actions { display: flex; gap: 6px; flex-shrink: 0; }
-  code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; }
+  code { background: #f1f5f9; padding: 1px 4px; border-radius: 2px; }
   @media (max-width: 700px) {
     .form-grid, .mf-grid, .path-overrides { grid-template-columns: 1fr; }
     .models-head { flex-direction: column; }

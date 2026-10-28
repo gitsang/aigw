@@ -43,12 +43,12 @@
 </div>
 
 <style>
-  .login { min-height: 100vh; display: grid; place-items: center; padding: 20px; background: radial-gradient(circle at 20% 10%, #dbeafe, transparent 35%), radial-gradient(circle at 90% 80%, #ede9fe, transparent 40%), #f8fafc; }
-  .card { width: min(400px, 100%); background: #fff; border: 1px solid #e2e8f0; border-radius: 18px; padding: 32px; box-shadow: 0 24px 60px rgba(15,23,42,.08); display: flex; flex-direction: column; gap: 16px; }
-  .logo { width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, #38bdf8, #2563eb); color: #fff; display: grid; place-items: center; font-weight: 800; font-size: 22px; }
+  .login { min-height: 100vh; display: grid; place-items: center; padding: 20px; background: #eef2f7; }
+  .card { width: min(420px, 100%); background: #fff; border: 1px solid #cfd9e5; border-radius: 2px; padding: 24px; box-shadow: 0 16px 40px rgba(15,23,42,.07); display: flex; flex-direction: column; gap: 14px; }
+  .logo { width: 40px; height: 40px; border-radius: 2px; background: #2563eb; color: #fff; display: grid; place-items: center; font-weight: 800; font-size: 20px; }
   h1 { margin: 2px 0 0; font-size: 20px; }
   p { margin: -6px 0 4px; color: #64748b; font-size: 13px; line-height: 1.6; }
   .full { justify-content: center; padding: 10px; margin-top: 4px; }
-  .error { color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 9px 11px; font-size: 12.5px; }
-  code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; }
+  .error { color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 2px; padding: 8px 10px; font-size: 12.5px; }
+  code { background: #f1f5f9; padding: 1px 4px; border-radius: 2px; }
 </style>

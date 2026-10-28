@@ -394,10 +394,10 @@
   .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; margin-bottom: 20px; }
   h1 { margin: 0; font-size: 23px; letter-spacing: -.03em; }
   .page-head p { margin: 6px 0 0; color: #64748b; font-size: 13px; max-width: 720px; line-height: 1.55; }
-  .alert { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; border-radius: 9px; padding: 11px 14px; margin-bottom: 15px; font-size: 13px; }
+  .alert { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; border-radius: 2px; padding: 9px 12px; margin-bottom: 12px; font-size: 13px; }
   .alert a { color: #1d4ed8; text-decoration: underline; }
-  .rules { display: flex; flex-direction: column; gap: 14px; }
-  .rule { padding: 17px 18px; }
+  .rules { display: flex; flex-direction: column; gap: 12px; }
+  .rule { padding: 13px 14px; border-radius: 2px; }
   .rule-head { display: flex; justify-content: space-between; gap: 14px; }
   .model-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .vmodel { font-size: 16px; font-weight: 700; }
@@ -405,8 +405,8 @@
   .apis { display: flex; gap: 5px; margin-top: 9px; flex-wrap: wrap; }
   .rule-actions { display: flex; gap: 7px; }
   .danger-lite { color: #b91c1c; }
-  .targets { margin-top: 14px; border: 1px solid #edf2f7; border-radius: 10px; overflow: hidden; }
-  .target-head, .target { display: grid; grid-template-columns: 78px minmax(170px, 1.4fr) minmax(140px, 1fr) 60px minmax(100px, .7fr); gap: 10px; align-items: center; padding: 9px 12px; }
+  .targets { margin-top: 12px; border: 1px solid #edf2f7; border-radius: 2px; overflow: hidden; }
+  .target-head, .target { display: grid; grid-template-columns: 78px minmax(170px, 1.4fr) minmax(140px, 1fr) 60px minmax(100px, .7fr); gap: 10px; align-items: center; padding: 8px 10px; }
   .target-head { background: #f8fafc; color: #94a3b8; font-size: 10.5px; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; }
   .target { border-top: 1px solid #edf2f7; font-size: 12px; }
   .target.off { opacity: .55; }
@@ -422,17 +422,17 @@
   .target-editor { border-top: 1px solid #e2e8f0; padding-top: 15px; }
   .te-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
   .te-head h3 { margin: 0; font-size: 13.5px; }
-  .te-note { margin: 0 0 12px; padding: 9px 12px; border-radius: 8px; background: #f1f7ff; border: 1px solid #dbeafe; color: #475569; font-size: 11.5px; line-height: 1.65; }
+  .te-note { margin: 0 0 10px; padding: 8px 10px; border-radius: 2px; background: #f1f7ff; border: 1px solid #dbeafe; color: #475569; font-size: 11.5px; line-height: 1.65; }
   .te-note b { color: #1d4ed8; font-weight: 650; }
   .te-head > div { display: flex; gap: 6px; }
-  .te-row { display: grid; grid-template-columns: 90px 1fr 1.25fr 1.35fr 70px 32px; gap: 8px; align-items: end; padding: 10px; background: #f8fafc; border-radius: 9px; margin-bottom: 8px; }
+  .te-row { display: grid; grid-template-columns: 90px 1fr 1.25fr 1.35fr 70px 32px; gap: 8px; align-items: end; padding: 9px; background: #f8fafc; border: 1px solid #e8eef6; border-radius: 2px; margin-bottom: 7px; }
   .target-summary { min-width: 0; padding-bottom: 8px; display: flex; flex-direction: column; gap: 3px; }
   .ts-row { font-size: 10.5px; color: #64748b; line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ts-warn { color: #b45309; font-size: 10.5px; }
   .proto-chips { display: flex; flex-wrap: wrap; gap: 4px; }
   .proto-chip {
     display: inline-flex; align-items: center; gap: 4px; border: 1px solid #bfdbfe;
-    background: #eff6ff; color: #1d4ed8; border-radius: 6px; padding: 2px 6px;
+    background: #eff6ff; color: #1d4ed8; border-radius: 2px; padding: 2px 5px;
     font-size: 10.5px; font-weight: 600; cursor: pointer;
   }
   .proto-chip:hover { background: #fee2e2; border-color: #fecaca; color: #b91c1c; }
@@ -444,7 +444,7 @@
   .proto-empty { font-size: 10.5px; color: #b45309; }
   .proto-add { display: flex; flex-wrap: wrap; gap: 4px; margin: 3px 0; }
   .proto-add-btn, .proto-reset {
-    border: 1px dashed #cbd5e1; background: #fff; color: #64748b; border-radius: 5px;
+    border: 1px dashed #cbd5e1; background: #fff; color: #64748b; border-radius: 2px;
     padding: 1px 6px; font-size: 10px; cursor: pointer;
   }
   .proto-add-btn:hover { border-color: #93c5fd; color: #1d4ed8; }
