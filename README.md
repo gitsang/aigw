@@ -43,11 +43,13 @@ checks, retries/fallbacks, and a SvelteKit management console.
     stream flag, attempt count, fallback used, retry/fallback policy, error, client IP.
   - Dashboard: request counts, success rate, avg/P95 latency, token totals, cost,
     model distribution, per-hour request series, app breakdown.
-- **SvelteKit management console** with pages for:
+- **SvelteKit management console**, built on
+  [shadcn-svelte](https://www.shadcn-svelte.com) (Tailwind CSS v4) with pages for:
   - Model Provider
   - Routing
   - API Keys
   - Logs & statistics
+  - Light/dark theme, responsive sidebar, toasts and accessible dialogs out of the box.
 
 ## Architecture
 
@@ -112,6 +114,18 @@ Run tests:
 make test
 cd web && npm run check
 ```
+
+The console uses shadcn-svelte components generated into `web/src/lib/components/ui`
+and the theme tokens in `web/src/app.css`. To add more primitives:
+
+```bash
+cd web
+npx shadcn-svelte@latest add <component>   # e.g. accordion, command, calendar
+```
+
+The Vite dev server proxies `/api/admin` and `/v1` to `http://localhost:8080`; set
+`AIGW_DEV_BACKEND` to point it at another backend, e.g.
+`AIGW_DEV_BACKEND=http://localhost:8989 make dev`.
 
 ### Configuration
 

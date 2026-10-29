@@ -1,51 +1,88 @@
 <script>
   import { onMount } from 'svelte';
   import { api, fmtLatency, fmtTime } from '$lib/api';
-  import { toast } from '$lib/toast';
-  import Modal from '$lib/components/Modal.svelte';
-  import Confirm from '$lib/components/Confirm.svelte';
-  import Badge from '$lib/components/Badge.svelte';
+  import { toast } from 'svelte-sonner';
+
+  import PlusIcon from '@lucide/svelte/icons/plus';
+  import PencilIcon from '@lucide/svelte/icons/pencil';
+  import Trash2Icon from '@lucide/svelte/icons/trash-2';
+  import RouteIcon from '@lucide/svelte/icons/route';
+  import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
+  import CheckIcon from '@lucide/svelte/icons/check';
+  import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
+  import XIcon from '@lucide/svelte/icons/x';
+
+  import * as Card from '$lib/components/ui/card/index.js';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import { Input } from '$lib/components/ui/input/index.js';
+  import { Label } from '$lib/components/ui/label/index.js';
+  import { Checkbox } from '$lib/components/ui/checkbox/index.js';
+  import { Switch } from '$lib/components/ui/switch/index.js';
+  import * as Select from '$lib/components/ui/select/index.js';
+  import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import * as Empty from '$lib/components/ui/empty/index.js';
+  import { Skeleton } from '$lib/components/ui/skeleton/index.js';
+  import { Alert, AlertDescription } from '$lib/components/ui/alert/index.js';
+  import { Separator } from '$lib/components/ui/separator/index.js';
+  import { Spinner } from '$lib/components/ui/spinner/index.js';
+
+  import PageHeader from '$lib/components/app/page-header.svelte';
+  import StatusBadge from '$lib/components/app/status-badge.svelte';
+  import ConfirmDialog from '$lib/components/app/confirm-dialog.svelte';
 
   const APIS = [
     ['chat.completions', 'Chat Completions'],
     ['responses', 'Responses'],
     ['messages', 'Messages']
   ];
-  const PROTOCOL_NAMES = {
-    'chat.completions': 'Chat Completions',
-    responses: 'Responses',
-    messages: 'Messages'
-  };
-  const apiLabel = (v) => PROTOCOL_NAMES[v] || v;
+  const PROTOCOL_NAMES = Object.fromEntries(APIS);
+  const apiLabel = (value) => PROTOCOL_NAMES[value] || value;
 
   const blankTarget = (role = 'lb') => ({
-    role, provider_id: '', provider_model_id: '', upstream_model: '',
-    api_types: [...APIS.map(([v]) => v)],
-    weight: 50, priority: 0, enabled: true
+    role,
+    provider_id: '',
+    provider_model_id: '',
+    upstream_model: '',
+    api_types: APIS.map(([value]) => value),
+    weight: 50,
+    priority: 0,
+    enabled: true
   });
   const blankRule = () => ({
-    name: '', virtual_model: '', api_types: APIS.map(([v]) => v), enabled: true,
-    retry_count: 3, retry_policy: 'exponential', fallback_policy: 'fallback-first',
-    retry_delay_ms: 250, max_backoff_ms: 5000, targets: [blankTarget('lb'), blankTarget('fallback')]
+    name: '',
+    virtual_model: '',
+    api_types: APIS.map(([value]) => value),
+    enabled: true,
+    retry_count: 3,
+    retry_policy: 'exponential',
+    fallback_policy: 'fallback-first',
+    retry_delay_ms: 250,
+    max_backoff_ms: 5000,
+    targets: [blankTarget('lb'), blankTarget('fallback')]
   });
 
-  let rules = [];
-  let providers = [];
-  let providerModels = {};
-  let loading = true;
-  let error = '';
-  let modalOpen = false;
-  let editingId = null;
-  let form = blankRule();
-  let saving = false;
-  let deleteTarget = null;
-  let deleting = false;
+  let rules = $state([]);
+  let providers = $state([]);
+  let providerModels = $state({});
+  let loading = $state(true);
+  let error = $state('');
+
+  let modalOpen = $state(false);
+  let editingId = $state(null);
+  let form = $state(blankRule());
+  let saving = $state(false);
+
+  let deleteTarget = $state(null);
+  let deleting = $state(false);
 
   async function load() {
     loading = true;
     error = '';
     try {
-      [rules, providers] = await Promise.all([api('/api/admin/routes'), api('/api/admin/providers')]);
+      [rules, providers] = await Promise.all([
+        api('/api/admin/routes'),
+        api('/api/admin/providers')
+      ]);
     } catch (e) {
       error = e.message;
     } finally {
@@ -56,7 +93,7 @@
   async function openCreate() {
     editingId = null;
     form = blankRule();
-    for (const p of providers) await ensureModels(p.id);
+    for (const provider of providers) await ensureModels(provider.id);
     if (providers.length) {
       form.targets[0].provider_id = providers[0].id;
       form.targets[0].provider_model_id = providerModels[providers[0].id]?.[0]?.id || '';
@@ -71,30 +108,41 @@
   async function openEdit(rule) {
     editingId = rule.id;
     form = {
-      name: rule.name, virtual_model: rule.virtual_model, api_types: [...rule.api_types],
-      enabled: rule.enabled, retry_count: rule.retry_count, retry_policy: rule.retry_policy,
-      fallback_policy: rule.fallback_policy, retry_delay_ms: rule.retry_delay_ms,
+      name: rule.name,
+      virtual_model: rule.virtual_model,
+      api_types: [...rule.api_types],
+      enabled: rule.enabled,
+      retry_count: rule.retry_count,
+      retry_policy: rule.retry_policy,
+      fallback_policy: rule.fallback_policy,
+      retry_delay_ms: rule.retry_delay_ms,
       max_backoff_ms: rule.max_backoff_ms,
-      targets: rule.targets.map((t) => ({
-        id: t.id, role: t.role, provider_id: t.provider_id,
-        provider_model_id: t.provider_model_id || '',
-        upstream_model: t.upstream_model,
-        api_types: [...(t.api_types || [])],
-        weight: t.weight, priority: t.priority, enabled: t.enabled
+      targets: rule.targets.map((target) => ({
+        id: target.id,
+        role: target.role,
+        provider_id: target.provider_id,
+        provider_model_id: target.provider_model_id || '',
+        upstream_model: target.upstream_model,
+        api_types: [...(target.api_types || [])],
+        weight: target.weight,
+        priority: target.priority,
+        enabled: target.enabled
       }))
     };
-    for (const t of form.targets) if (t.provider_id) await ensureModels(t.provider_id);
+    for (const target of form.targets) {
+      if (target.provider_id) await ensureModels(target.provider_id);
+    }
     modalOpen = true;
   }
 
   async function addTarget(role) {
-    const t = blankTarget(role);
+    const target = blankTarget(role);
     if (providers.length) {
-      t.provider_id = providers[0].id;
-      const list = await ensureModels(t.provider_id);
-      t.provider_model_id = list[0]?.id || '';
+      target.provider_id = providers[0].id;
+      const list = await ensureModels(target.provider_id);
+      target.provider_model_id = list[0]?.id || '';
     }
-    form.targets = [...form.targets, t];
+    form.targets = [...form.targets, target];
   }
 
   function removeTarget(index) {
@@ -112,95 +160,95 @@
     if (!providerModels[providerID]) {
       try {
         providerModels[providerID] = await api(`/api/admin/providers/${providerID}/models`);
-        providerModels = providerModels;
       } catch (e) {
         providerModels[providerID] = [];
-        providerModels = providerModels;
-        toast(`加载模型失败：${e.message}`, 'error');
+        toast.error(`加载模型失败：${e.message}`);
       }
     }
     return providerModels[providerID];
   }
 
-  async function onProviderChange(index) {
-    const target = form.targets[index];
-    updateTarget(index, { provider_model_id: '', upstream_model: '', api_types: [] });
-    const list = await ensureModels(target.provider_id);
-    const next = { ...form.targets[index] };
-    if (list.length) next.provider_model_id = list[0].id;
-    next.api_types = initialTargetProtocols(next);
-    updateTarget(index, next);
+  function modelsFor(providerID) {
+    return providerModels[providerID] || [];
   }
-  async function onModelChange(index) {
-    updateTarget(index, { api_types: initialTargetProtocols(form.targets[index]) });
-  }
-
-  function modelsFor(providerID) { return providerModels[providerID] || []; }
   function modelOf(target) {
-    return modelsFor(target.provider_id).find((m) => m.id === target.provider_model_id);
+    return modelsFor(target.provider_id).find((model) => model.id === target.provider_model_id);
   }
-  function providerOf(target) { return providers.find((p) => p.id === target.provider_id); }
-  // Ordered protocol multi-select: order matters because the first protocol is
-  // used when the inbound protocol is not in the target's list.
+  function providerOf(target) {
+    return providers.find((provider) => provider.id === target.provider_id);
+  }
   function updateTarget(index, patch) {
-    // Reassign the array so Svelte's legacy reactivity picks up nested edits.
-    form.targets = form.targets.map((t, i) => (i === index ? { ...t, ...patch } : t));
+    form.targets = form.targets.map((target, i) =>
+      i === index ? { ...target, ...patch } : target
+    );
   }
   function toggleTargetProtocol(index, name) {
-    const t = form.targets[index];
-    const next = t.api_types.includes(name)
-      ? t.api_types.filter((v) => v !== name)
-      : [...t.api_types, name];
+    const target = form.targets[index];
+    const next = target.api_types.includes(name)
+      ? target.api_types.filter((value) => value !== name)
+      : [...target.api_types, name];
     updateTarget(index, { api_types: next });
   }
   function protocolOrderText(target) {
-    return target.api_types.length ? target.api_types.map(apiLabel).join(' → ') : '未选择（继承模型/Provider）';
+    return target.api_types.length
+      ? target.api_types.map(apiLabel).join(' → ')
+      : '未选择（继承模型/Provider）';
   }
   function targetPathHint(target) {
-    const m = modelOf(target);
-    const p = providerOf(target);
+    const model = modelOf(target);
+    const provider = providerOf(target);
     const parts = [];
-    for (const [k, v] of Object.entries(m?.path_overrides || {})) parts.push(`${apiLabel(k)}: ${v}`);
-    for (const [k, v] of Object.entries(p?.path_overrides || {})) {
-      if (!m?.path_overrides?.[k]) parts.push(`${apiLabel(k)}: ${v}`);
+    for (const [key, value] of Object.entries(model?.path_overrides || {})) {
+      parts.push(`${apiLabel(key)}: ${value}`);
+    }
+    for (const [key, value] of Object.entries(provider?.path_overrides || {})) {
+      if (!model?.path_overrides?.[key]) parts.push(`${apiLabel(key)}: ${value}`);
     }
     return parts.length ? parts.join('  ') : '内置默认 Path';
   }
-  // Effective protocols the target can use: its own list filtered by what the
-  // model/provider actually supports, in the target's configured order.
-  function effectiveProtocols(target) {
-    const m = modelOf(target);
-    const p = providerOf(target);
-    const available = m?.api_types?.length ? m.api_types : (p?.api_types?.length ? p.api_types : APIS.map(([v]) => v));
-    if (!target.api_types?.length) return available;
-    const filtered = target.api_types.filter((v) => available.includes(v));
-    return filtered.length ? filtered : available;
-  }
-  function initialTargetProtocols(target) {
-    const m = modelOf(target);
-    const p = providerOf(target);
-    const available = m?.api_types?.length ? m.api_types : (p?.api_types?.length ? p.api_types : APIS.map(([v]) => v));
-    return [...available];
+  function availableProtocols(target) {
+    const model = modelOf(target);
+    const provider = providerOf(target);
+    if (model?.api_types?.length) return model.api_types;
+    if (provider?.api_types?.length) return provider.api_types;
+    return APIS.map(([value]) => value);
   }
   function resetTargetProtocols(index) {
-    const t = form.targets[index];
-    updateTarget(index, { api_types: initialTargetProtocols(t) });
+    updateTarget(index, { api_types: [...availableProtocols(form.targets[index])] });
+  }
+
+  async function onProviderChange(index) {
+    updateTarget(index, { provider_model_id: '', upstream_model: '', api_types: [] });
+    const target = form.targets[index];
+    const list = await ensureModels(target.provider_id);
+    const next = { ...form.targets[index] };
+    if (list.length) next.provider_model_id = list[0].id;
+    next.api_types = [...availableProtocols(next)];
+    updateTarget(index, next);
+  }
+  function onModelChange(index) {
+    updateTarget(index, { api_types: [...availableProtocols(form.targets[index])] });
   }
 
   async function save() {
-    if (!form.virtual_model.trim()) return toast('请填写对外模型名', 'error');
-    if (!form.targets.length) return toast('至少配置一个 target', 'error');
-    if (form.targets.some((t) => !t.provider_id || !t.provider_model_id)) return toast('每个 target 都需要 provider 和模型', 'error');
+    if (!form.virtual_model.trim()) return toast.error('请填写对外模型名');
+    if (!form.targets.length) return toast.error('至少配置一个 target');
+    if (form.targets.some((target) => !target.provider_id || !target.provider_model_id)) {
+      return toast.error('每个 target 都需要 provider 和模型');
+    }
     saving = true;
     try {
-      const payload = { ...form, targets: form.targets.map((t) => ({ ...t })) };
-      if (editingId) await api(`/api/admin/routes/${editingId}`, { method: 'PUT', body: JSON.stringify(payload) });
-      else await api('/api/admin/routes', { method: 'POST', body: JSON.stringify(payload) });
-      toast(editingId ? 'Routing 规则已更新' : 'Routing 规则已创建');
+      const payload = { ...form, targets: form.targets.map((target) => ({ ...target })) };
+      if (editingId) {
+        await api(`/api/admin/routes/${editingId}`, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        await api('/api/admin/routes', { method: 'POST', body: JSON.stringify(payload) });
+      }
+      toast.success(editingId ? 'Routing 规则已更新' : 'Routing 规则已创建');
       modalOpen = false;
       await load();
     } catch (e) {
-      toast(e.message, 'error');
+      toast.error(e.message);
     } finally {
       saving = false;
     }
@@ -210,11 +258,11 @@
     deleting = true;
     try {
       await api(`/api/admin/routes/${deleteTarget.id}`, { method: 'DELETE' });
-      toast('Routing 规则已删除');
+      toast.success('Routing 规则已删除');
       deleteTarget = null;
       await load();
     } catch (e) {
-      toast(e.message, 'error');
+      toast.error(e.message);
     } finally {
       deleting = false;
     }
@@ -223,238 +271,445 @@
   onMount(load);
 </script>
 
-<svelte:head><title>Routing · aigw</title></svelte:head>
+<svelte:head>
+  <title>Routing · aigw</title>
+</svelte:head>
 
-<header class="page-head">
-  <div>
-    <h1>Routing</h1>
-    <p>虚拟模型 → 加权 LB target → fallback。健康检查每分钟执行，不健康 LB 自动移出，全部下线时使用 fallback。</p>
-  </div>
-  <button class="btn primary" on:click={openCreate} disabled={!providers.length}>+ 添加规则</button>
-</header>
+<PageHeader
+  title="Routing"
+  description="虚拟模型 → 加权 LB target → fallback。健康检查每分钟执行，不健康的 LB 自动移出，全部下线时使用 fallback。"
+>
+  <Button onclick={openCreate} disabled={!providers.length}>
+    <PlusIcon />
+    添加规则
+  </Button>
+</PageHeader>
 
 {#if !providers.length && !loading}
-  <div class="alert">请先在 <a href="/providers">Model Provider</a> 添加至少一个上游服务。</div>
+  <Alert>
+    <TriangleAlertIcon />
+    <AlertDescription>
+      请先在 <a href="/providers" class="font-medium underline underline-offset-2">Model Provider</a>
+      添加至少一个上游服务。
+    </AlertDescription>
+  </Alert>
 {/if}
-{#if error}<div class="alert">{error}</div>{/if}
+{#if error}
+  <Alert variant="destructive">
+    <TriangleAlertIcon />
+    <AlertDescription>{error}</AlertDescription>
+  </Alert>
+{/if}
 
-<section class="rules">
-  {#if loading}
-    <div class="panel empty"><div class="spinner" style="margin:auto"></div></div>
-  {:else if !rules.length}
-    <div class="panel empty">还没有 Routing 规则。创建一条规则，将对外模型映射到上游 provider。</div>
-  {:else}
-    {#each rules as rule (rule.id)}
-      <article class="panel rule">
-        <div class="rule-head">
-          <div>
-            <div class="model-line">
-              <span class="mono vmodel">{rule.virtual_model}</span>
-              <Badge tone={rule.enabled ? 'green' : 'neutral'} dot>{rule.enabled ? '启用' : '停用'}</Badge>
-              <Badge tone="violet">{rule.fallback_policy}</Badge>
-              <Badge tone="amber">{rule.retry_policy} · {rule.retry_count}x</Badge>
-            </div>
-            <div class="rule-name">{rule.name} · {rule.retry_delay_ms}ms base / {rule.max_backoff_ms}ms max backoff</div>
-            <div class="apis">{#each rule.api_types as t}<span class="chip">{APIS.find(([v]) => v === t)?.[1] || t}</span>{/each}</div>
-          </div>
-          <div class="rule-actions">
-            <button class="btn sm" on:click={() => openEdit(rule)}>编辑</button>
-            <button class="btn sm danger-lite" on:click={() => (deleteTarget = rule)}>删除</button>
-          </div>
-        </div>
-
-        <div class="targets">
-          <div class="target-head"><span>角色</span><span>Provider / Upstream</span><span>接口</span><span>权重</span><span>健康</span></div>
-          {#each rule.targets as t}
-            <div class="target" class:off={!t.enabled}>
-              <div><Badge tone={t.role === 'fallback' ? 'amber' : 'blue'}>{t.role === 'fallback' ? 'Fallback' : 'LB'}</Badge></div>
-              <div class="prov">
-                <b>{t.provider_name}</b>
-                <span class="mono">{t.upstream_model}</span>
-              </div>
-              <div class="mono api-cell">
-                {t.api_types?.length ? t.api_types.map(apiLabel).join(' → ') : '继承'}
-                <div class="sub">{t.path_overrides && Object.keys(t.path_overrides).length ? Object.entries(t.path_overrides).map(([k,v]) => `${apiLabel(k)} → ${v}`).join('  ') : 'Provider/内置 Path'}</div>
-              </div>
-              <div class="mono weight">{t.role === 'fallback' ? '—' : `${t.weight}`}</div>
-              <div>
-                {#if t.role === 'fallback'}
-                  <Badge tone="neutral">仅兜底</Badge>
-                {:else if t.health?.healthy}
-                  <Badge tone="green" dot>健康</Badge>
-                {:else}
-                  <Badge tone="red" dot>不健康</Badge>
-                {/if}
-                {#if t.health?.checked_at}
-                  <div class="sub">{fmtLatency(t.health.latency_ms)} · {fmtTime(t.health.checked_at)}</div>
-                {/if}
-                {#if t.health && !t.health.healthy && t.health.error}
-                  <div class="health-error" title={t.health.error}>{t.health.error}</div>
-                {/if}
-              </div>
-            </div>
-          {/each}
-        </div>
-      </article>
+{#if loading}
+  <div class="space-y-2.5">
+    {#each Array(2) as _, i (i)}
+      <Skeleton class="h-[184px] w-full rounded-lg" />
     {/each}
-  {/if}
-</section>
+  </div>
+{:else if !rules.length}
+  <Card.Root>
+    <Card.Content>
+      <Empty.Root class="py-10">
+        <Empty.Header>
+          <Empty.Media variant="icon"><RouteIcon /></Empty.Media>
+          <Empty.Title>还没有 Routing 规则</Empty.Title>
+          <Empty.Description>
+            创建一条规则，把对外模型名映射到一个或多个上游 provider。
+          </Empty.Description>
+        </Empty.Header>
+        <Empty.Content>
+          <Button variant="outline" onclick={openCreate} disabled={!providers.length}>
+            <PlusIcon />
+            创建规则
+          </Button>
+        </Empty.Content>
+      </Empty.Root>
+    </Card.Content>
+  </Card.Root>
+{:else}
+  <section class="space-y-2.5">
+    {#each rules as rule (rule.id)}
+      <Card.Root class="gap-2">
+        <Card.Header>
+          <div class="flex flex-wrap items-start justify-between gap-2">
+            <div class="min-w-0 space-y-1.5">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="font-mono text-sm font-semibold tracking-tight">
+                  {rule.virtual_model}
+                </span>
+                <StatusBadge tone={rule.enabled ? 'success' : 'neutral'} dot>
+                  {rule.enabled ? '启用' : '停用'}
+                </StatusBadge>
+                <StatusBadge tone="violet">{rule.fallback_policy}</StatusBadge>
+                <StatusBadge tone="warning">{rule.retry_policy} · {rule.retry_count}x</StatusBadge>
+              </div>
+              <div class="text-[11px] text-muted-foreground">
+                {rule.name} · {rule.retry_delay_ms}ms base / {rule.max_backoff_ms}ms max backoff
+              </div>
+              <div class="flex flex-wrap gap-1">
+                {#each rule.api_types as type (type)}
+                  <StatusBadge tone="info">{apiLabel(type)}</StatusBadge>
+                {/each}
+              </div>
+            </div>
+            <div class="flex shrink-0 items-center gap-1">
+              <Button variant="outline" size="sm" onclick={() => openEdit(rule)}>
+                <PencilIcon />
+                编辑
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                class="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onclick={() => (deleteTarget = rule)}
+              >
+                <Trash2Icon />
+                删除
+              </Button>
+            </div>
+          </div>
+        </Card.Header>
 
-<Modal open={modalOpen} title={editingId ? '编辑 Routing 规则' : '添加 Routing 规则'} wide onclose={() => (modalOpen = false)}>
-  <div class="form-grid">
-    <div class="field"><label for="r-name">规则名称</label><input id="r-name" class="input" bind:value={form.name} placeholder="deepseek-flash-lb" /></div>
-    <div class="field"><label for="r-model">对外模型名 (virtual model)</label><input id="r-model" class="input mono" bind:value={form.virtual_model} placeholder="deepseek-flash" /></div>
-    <div class="field wide"><span class="label">支持的入口 API</span>
-      <div class="check-row">
-        {#each APIS as [value, label]}
-          <label class="check"><input type="checkbox" checked={form.api_types.includes(value)} on:change={() => toggleApi(value)} /><span class="mono">{label}</span></label>
+        <Card.Content>
+          <div class="overflow-x-auto">
+            <div class="min-w-[720px] overflow-hidden rounded-lg border">
+              <div
+                class="grid grid-cols-[70px_minmax(180px,1.4fr)_minmax(190px,1.1fr)_60px_minmax(140px,0.9fr)] gap-2 bg-muted/50 px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+              >
+                <span>角色</span>
+                <span>Provider / Upstream</span>
+                <span>接口顺序</span>
+                <span class="text-right">权重</span>
+                <span>健康</span>
+              </div>
+              {#each rule.targets as target, index (target.id ?? index)}
+                <div
+                  class="grid grid-cols-[70px_minmax(180px,1.4fr)_minmax(190px,1.1fr)_60px_minmax(140px,0.9fr)] items-center gap-2 border-t px-2.5 py-1.5 text-[11px]"
+                  class:opacity-60={!target.enabled}
+                >
+                  <div>
+                    <StatusBadge tone={target.role === 'fallback' ? 'warning' : 'primary'}>
+                      {target.role === 'fallback' ? 'Fallback' : 'LB'}
+                    </StatusBadge>
+                  </div>
+                  <div class="min-w-0">
+                    <div class="truncate font-medium">{target.provider_name}</div>
+                    <div class="truncate font-mono text-[10px] text-muted-foreground">
+                      {target.upstream_model}
+                    </div>
+                  </div>
+                  <div class="min-w-0">
+                    <div class="truncate font-mono text-[10.5px]">
+                      {target.api_types?.length ? target.api_types.map(apiLabel).join(' → ') : '继承'}
+                    </div>
+                    <div class="truncate text-[10px] text-muted-foreground">
+                      {target.path_overrides && Object.keys(target.path_overrides).length
+                        ? Object.entries(target.path_overrides)
+                            .map(([key, value]) => `${apiLabel(key)} → ${value}`)
+                            .join('  ')
+                        : 'Provider / 内置 Path'}
+                    </div>
+                  </div>
+                  <div class="text-right font-mono tabular-nums">
+                    {target.role === 'fallback' ? '—' : target.weight}
+                  </div>
+                  <div class="min-w-0 space-y-0.5">
+                    {#if target.role === 'fallback'}
+                      <StatusBadge tone="neutral">仅兜底</StatusBadge>
+                    {:else if target.health?.healthy}
+                      <StatusBadge tone="success" dot>健康</StatusBadge>
+                    {:else}
+                      <StatusBadge tone="danger" dot>不健康</StatusBadge>
+                    {/if}
+                    {#if target.health?.checked_at}
+                      <div class="truncate text-[10px] text-muted-foreground">
+                        {fmtLatency(target.health.latency_ms)} · {fmtTime(target.health.checked_at)}
+                      </div>
+                    {/if}
+                    {#if target.health && !target.health.healthy && target.health.error}
+                      <div
+                        class="truncate text-[10px] text-destructive"
+                        title={target.health.error}
+                      >
+                        {target.health.error}
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+              {/each}
+            </div>
+          </div>
+        </Card.Content>
+      </Card.Root>
+    {/each}
+  </section>
+{/if}
+
+<Dialog.Root bind:open={modalOpen}>
+  <Dialog.Content class="max-h-[88vh] overflow-y-auto sm:max-w-4xl">
+    <Dialog.Header>
+      <Dialog.Title>{editingId ? '编辑 Routing 规则' : '添加 Routing 规则'}</Dialog.Title>
+      <Dialog.Description>
+        虚拟模型映射到多个上游 target，按权重负载均衡，失败时按策略重试与兜底。
+      </Dialog.Description>
+    </Dialog.Header>
+
+    <div class="grid gap-3 sm:grid-cols-2">
+      <div class="grid gap-1.5">
+        <Label for="r-name">规则名称</Label>
+        <Input id="r-name" bind:value={form.name} placeholder="deepseek-flash-lb" />
+      </div>
+      <div class="grid gap-1.5">
+        <Label for="r-model">对外模型名 (virtual model)</Label>
+        <Input
+          id="r-model"
+          class="font-mono"
+          bind:value={form.virtual_model}
+          placeholder="deepseek-flash"
+        />
+      </div>
+    </div>
+
+    <div class="space-y-2 rounded-lg border bg-muted/40 p-3">
+      <span class="text-xs font-medium">支持的入口 API</span>
+      <div class="flex flex-wrap gap-4">
+        {#each APIS as [value, label] (value)}
+          <label class="flex items-center gap-1.5 text-xs">
+            <Checkbox checked={form.api_types.includes(value)} onCheckedChange={() => toggleApi(value)} />
+            <span class="font-mono">{label}</span>
+          </label>
         {/each}
       </div>
     </div>
-    <div class="field"><label for="r-fallback">Fallback 策略</label>
-      <select id="r-fallback" class="select" bind:value={form.fallback_policy}>
-        <option value="fallback-first">fallback-first（每轮先 LB 全部尝试，再 fallback；整体循环重试）</option>
-        <option value="retry-first">retry-first（单个路由重试 N 次，再换下一个，最后 fallback）</option>
-      </select>
-    </div>
-    <div class="field"><label for="r-retry">重试次数</label><input id="r-retry" class="input" type="number" min="1" max="20" bind:value={form.retry_count} /></div>
-    <div class="field"><label for="r-policy">退避策略</label>
-      <select id="r-policy" class="select" bind:value={form.retry_policy}><option value="exponential">指数退避</option><option value="fixed">固定退避</option></select>
-    </div>
-    <div class="field"><label for="r-delay">基础退避 (ms)</label><input id="r-delay" class="input" type="number" min="0" bind:value={form.retry_delay_ms} /></div>
-    <div class="field"><label for="r-backoff">最大退避 (ms)</label><input id="r-backoff" class="input" type="number" min="0" bind:value={form.max_backoff_ms} /></div>
-    <label class="check"><input type="checkbox" bind:checked={form.enabled} /> 启用该规则</label>
-  </div>
 
-  <div class="target-editor">
-    <div class="te-head">
-      <h3>Targets</h3>
-      <div><button class="btn sm" type="button" on:click={() => addTarget('lb')}>+ LB</button><button class="btn sm" type="button" on:click={() => addTarget('fallback')}>+ Fallback</button></div>
-    </div>
-    <p class="te-note">
-      每个 target 可选择多个<b>上游协议</b>并按顺序排列。请求入口协议在列表中时直接使用它；
-      否则使用列表中的第一个协议并自动转换。Path 由模型/Provider 配置决定，target 不再单独配置。
-    </p>
-    {#each form.targets as t, i}
-      <div class="te-row">
-        <div class="field"><label for={`t-role-${i}`}>角色</label>
-          <select id={`t-role-${i}`} class="select" bind:value={t.role}>
-            <option value="lb">LB</option><option value="fallback">Fallback</option>
-          </select>
-        </div>
-        <div class="field"><label for={`t-provider-${i}`}>Provider</label>
-          <select id={`t-provider-${i}`} class="select" bind:value={t.provider_id} on:change={() => onProviderChange(i)}>
-            <option value="">选择…</option>
-            {#each providers as p}<option value={p.id}>{p.name}</option>{/each}
-          </select>
-        </div>
-        <div class="field"><label for={`t-model-${i}`}>模型</label>
-          <select id={`t-model-${i}`} class="select" bind:value={t.provider_model_id} on:change={() => onModelChange(i)}>
-            <option value="">选择模型…</option>
-            {#each modelsFor(t.provider_id) as m}<option value={m.id}>{m.model_id}</option>{/each}
-          </select>
-        </div>
-        <div class="target-summary">
-          <div class="proto-chips">
-            {#each t.api_types as name}
-              <button class="proto-chip" type="button" on:click={() => toggleTargetProtocol(i, name)} title="点击移除">
-                {apiLabel(name)}<span class="ord">{t.api_types.indexOf(name) + 1}</span>✕
-              </button>
-            {/each}
-            {#if !t.api_types.length}<span class="proto-empty">未选择</span>{/if}
-          </div>
-          <div class="proto-add">
-            {#each APIS as [value, label]}
-              {#if !t.api_types.includes(value)}
-                <button class="proto-add-btn" type="button" on:click={() => toggleTargetProtocol(i, value)}>+ {label}</button>
-              {/if}
-            {/each}
-            <button class="proto-reset" type="button" on:click={() => resetTargetProtocols(i)}>重置</button>
-          </div>
-          <div class="ts-row mono">顺序：{protocolOrderText(t)} · Path: {targetPathHint(t)}</div>
-          {#if t.provider_id && !modelsFor(t.provider_id).length}
-            <div class="ts-warn">该 Provider 还没有模型，请先到 Provider 详情添加。</div>
-          {/if}
-        </div>
-        <div class="field weight"><label for={`t-weight-${i}`}>权重</label><input id={`t-weight-${i}`} class="input" type="number" min="1" bind:value={t.weight} /></div>
-        <button class="btn sm danger-lite remove" type="button" on:click={() => removeTarget(i)} title="删除 target">✕</button>
+    <div class="grid gap-3 sm:grid-cols-2">
+      <div class="grid gap-1.5 sm:col-span-2">
+        <Label for="r-fallback">Fallback 策略</Label>
+        <Select.Root type="single" bind:value={form.fallback_policy}>
+          <Select.Trigger class="w-full" id="r-fallback">
+            <Select.Value placeholder="fallback-first" />
+          </Select.Trigger>
+          <Select.Content>
+            <Select.Item value="fallback-first" label="fallback-first">
+              fallback-first · 每轮先尝试全部 LB，再 fallback，整体循环重试
+            </Select.Item>
+            <Select.Item value="retry-first" label="retry-first">
+              retry-first · 单条路由重试 N 次后切换，最后 fallback
+            </Select.Item>
+          </Select.Content>
+        </Select.Root>
       </div>
-    {/each}
-  </div>
+      <div class="grid gap-1.5">
+        <Label for="r-retry">重试次数</Label>
+        <Input id="r-retry" type="number" min="1" max="20" bind:value={form.retry_count} />
+      </div>
+      <div class="grid gap-1.5">
+        <Label for="r-policy">退避策略</Label>
+        <Select.Root type="single" bind:value={form.retry_policy}>
+          <Select.Trigger class="w-full" id="r-policy">
+            <Select.Value placeholder="exponential" />
+          </Select.Trigger>
+          <Select.Content>
+            <Select.Item value="exponential" label="指数退避">指数退避</Select.Item>
+            <Select.Item value="fixed" label="固定退避">固定退避</Select.Item>
+          </Select.Content>
+        </Select.Root>
+      </div>
+      <div class="grid gap-1.5">
+        <Label for="r-delay">基础退避 (ms)</Label>
+        <Input id="r-delay" type="number" min="0" bind:value={form.retry_delay_ms} />
+      </div>
+      <div class="grid gap-1.5">
+        <Label for="r-backoff">最大退避 (ms)</Label>
+        <Input id="r-backoff" type="number" min="0" bind:value={form.max_backoff_ms} />
+      </div>
+    </div>
 
-  <svelte:fragment slot="footer">
-    <button class="btn ghost" on:click={() => (modalOpen = false)} disabled={saving}>取消</button>
-    <button class="btn primary" on:click={save} disabled={saving}>{saving ? '保存中…' : '保存'}</button>
-  </svelte:fragment>
-</Modal>
+    <div class="flex items-center justify-between gap-2 rounded-lg border px-3 py-2">
+      <div class="space-y-0.5">
+        <div class="text-xs font-medium">启用该规则</div>
+        <div class="text-[10.5px] text-muted-foreground">
+          停用后该虚拟模型立即不可用
+        </div>
+      </div>
+      <Switch bind:checked={form.enabled} />
+    </div>
 
-<Confirm open={!!deleteTarget} title="删除 Routing 规则" message={`确定删除规则 ${deleteTarget?.virtual_model || ''}？使用该模型的客户端将立即失败。`} busy={deleting} onconfirm={remove} onclose={() => (deleteTarget = null)} />
+    <Separator />
 
-<style>
-  .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; margin-bottom: 20px; }
-  h1 { margin: 0; font-size: 23px; letter-spacing: -.03em; }
-  .page-head p { margin: 6px 0 0; color: #64748b; font-size: 13px; max-width: 720px; line-height: 1.55; }
-  .alert { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; border-radius: 2px; padding: 9px 12px; margin-bottom: 12px; font-size: 13px; }
-  .alert a { color: #1d4ed8; text-decoration: underline; }
-  .rules { display: flex; flex-direction: column; gap: 12px; }
-  .rule { padding: 13px 14px; border-radius: 2px; }
-  .rule-head { display: flex; justify-content: space-between; gap: 14px; }
-  .model-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .vmodel { font-size: 16px; font-weight: 700; }
-  .rule-name { color: #64748b; font-size: 11.5px; margin-top: 6px; }
-  .apis { display: flex; gap: 5px; margin-top: 9px; flex-wrap: wrap; }
-  .rule-actions { display: flex; gap: 7px; }
-  .danger-lite { color: #b91c1c; }
-  .targets { margin-top: 12px; border: 1px solid #edf2f7; border-radius: 2px; overflow: hidden; }
-  .target-head, .target { display: grid; grid-template-columns: 78px minmax(170px, 1.4fr) minmax(140px, 1fr) 60px minmax(100px, .7fr); gap: 10px; align-items: center; padding: 8px 10px; }
-  .target-head { background: #f8fafc; color: #94a3b8; font-size: 10.5px; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; }
-  .target { border-top: 1px solid #edf2f7; font-size: 12px; }
-  .target.off { opacity: .55; }
-  .prov b { display: block; font-size: 12.5px; }
-  .prov span { color: #64748b; font-size: 11px; }
-  .sub { color: #94a3b8; font-size: 10.5px; margin-top: 3px; }
-  .health-error { color: #b91c1c; font-size: 10px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; }
-  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
-  .wide { grid-column: 1 / -1; }
-  .check-row { display: flex; gap: 20px; flex-wrap: wrap; padding: 8px 0; }
-  .check { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: #334155; }
-  .label { font-size: 12px; color: #475569; font-weight: 650; }
-  .target-editor { border-top: 1px solid #e2e8f0; padding-top: 15px; }
-  .te-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-  .te-head h3 { margin: 0; font-size: 13.5px; }
-  .te-note { margin: 0 0 10px; padding: 8px 10px; border-radius: 2px; background: #f1f7ff; border: 1px solid #dbeafe; color: #475569; font-size: 11.5px; line-height: 1.65; }
-  .te-note b { color: #1d4ed8; font-weight: 650; }
-  .te-head > div { display: flex; gap: 6px; }
-  .te-row { display: grid; grid-template-columns: 90px 1fr 1.25fr 1.35fr 70px 32px; gap: 8px; align-items: end; padding: 9px; background: #f8fafc; border: 1px solid #e8eef6; border-radius: 2px; margin-bottom: 7px; }
-  .target-summary { min-width: 0; padding-bottom: 8px; display: flex; flex-direction: column; gap: 3px; }
-  .ts-row { font-size: 10.5px; color: #64748b; line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ts-warn { color: #b45309; font-size: 10.5px; }
-  .proto-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-  .proto-chip {
-    display: inline-flex; align-items: center; gap: 4px; border: 1px solid #bfdbfe;
-    background: #eff6ff; color: #1d4ed8; border-radius: 2px; padding: 2px 5px;
-    font-size: 10.5px; font-weight: 600; cursor: pointer;
-  }
-  .proto-chip:hover { background: #fee2e2; border-color: #fecaca; color: #b91c1c; }
-  .proto-chip .ord {
-    display: inline-grid; place-items: center; width: 13px; height: 13px; border-radius: 50%;
-    background: #2563eb; color: #fff; font-size: 9px;
-  }
-  .proto-chip:hover .ord { background: #dc2626; }
-  .proto-empty { font-size: 10.5px; color: #b45309; }
-  .proto-add { display: flex; flex-wrap: wrap; gap: 4px; margin: 3px 0; }
-  .proto-add-btn, .proto-reset {
-    border: 1px dashed #cbd5e1; background: #fff; color: #64748b; border-radius: 2px;
-    padding: 1px 6px; font-size: 10px; cursor: pointer;
-  }
-  .proto-add-btn:hover { border-color: #93c5fd; color: #1d4ed8; }
-  .proto-reset { border-style: solid; }
-  .remove { align-self: end; margin-bottom: 1px; padding: 8px; }
-  @media (max-width: 900px) {
-    .te-row { grid-template-columns: 1fr 1fr; }
-    .target-head { display: none; }
-    .target { grid-template-columns: 70px 1fr; }
-    .form-grid { grid-template-columns: 1fr; }
-    .wide { grid-column: auto; }
-  }
-</style>
+    <div class="space-y-2">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 class="text-xs font-semibold">Targets</h3>
+          <p class="mt-0.5 text-[10.5px] leading-relaxed text-muted-foreground">
+            每个 target 可配置多个<b class="text-foreground">上游协议</b>并按顺序排列：入口协议在列表中时直接使用，
+            否则使用第一个协议并自动转换。Path 由模型 / Provider 配置决定。
+          </p>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <Button variant="outline" size="sm" onclick={() => addTarget('lb')}>
+            <PlusIcon />
+            LB
+          </Button>
+          <Button variant="outline" size="sm" onclick={() => addTarget('fallback')}>
+            <PlusIcon />
+            Fallback
+          </Button>
+        </div>
+      </div>
+
+      {#each form.targets as target, index (index)}
+        <div class="space-y-2 rounded-lg border bg-muted/30 p-2.5">
+          <div class="flex items-center justify-between gap-2">
+            <StatusBadge tone={target.role === 'fallback' ? 'warning' : 'primary'}>
+              {target.role === 'fallback' ? 'Fallback' : 'LB'}
+            </StatusBadge>
+            <Button
+              variant="ghost"
+              size="xs"
+              class="text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onclick={() => removeTarget(index)}
+              aria-label="删除 target"
+            >
+              <Trash2Icon />
+            </Button>
+          </div>
+
+          <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-[110px_1fr_1.3fr_90px]">
+            <div class="grid gap-1">
+              <Label for={`t-role-${index}`} class="text-[10px] text-muted-foreground">角色</Label>
+              <Select.Root type="single" bind:value={target.role}>
+                <Select.Trigger class="w-full" id={`t-role-${index}`}>
+                  <Select.Value placeholder="LB" />
+                </Select.Trigger>
+                <Select.Content>
+                  <Select.Item value="lb" label="LB">LB</Select.Item>
+                  <Select.Item value="fallback" label="Fallback">Fallback</Select.Item>
+                </Select.Content>
+              </Select.Root>
+            </div>
+            <div class="grid gap-1">
+              <Label for={`t-provider-${index}`} class="text-[10px] text-muted-foreground">
+                Provider
+              </Label>
+              <Select.Root
+                type="single"
+                bind:value={target.provider_id}
+                onValueChange={() => onProviderChange(index)}
+              >
+                <Select.Trigger class="w-full" id={`t-provider-${index}`}>
+                  <Select.Value placeholder="选择…" />
+                </Select.Trigger>
+                <Select.Content>
+                  {#each providers as provider (provider.id)}
+                    <Select.Item value={provider.id} label={provider.name}>
+                      {provider.name}
+                    </Select.Item>
+                  {/each}
+                </Select.Content>
+              </Select.Root>
+            </div>
+            <div class="grid gap-1">
+              <Label for={`t-model-${index}`} class="text-[10px] text-muted-foreground">模型</Label>
+              <Select.Root
+                type="single"
+                bind:value={target.provider_model_id}
+                onValueChange={() => onModelChange(index)}
+              >
+                <Select.Trigger class="w-full" id={`t-model-${index}`}>
+                  <Select.Value placeholder="选择模型…" />
+                </Select.Trigger>
+                <Select.Content>
+                  {#each modelsFor(target.provider_id) as model (model.id)}
+                    <Select.Item value={model.id} label={model.model_id}>{model.model_id}</Select.Item>
+                  {/each}
+                </Select.Content>
+              </Select.Root>
+            </div>
+            <div class="grid gap-1">
+              <Label for={`t-weight-${index}`} class="text-[10px] text-muted-foreground">权重</Label>
+              <Input id={`t-weight-${index}`} type="number" min="1" bind:value={target.weight} />
+            </div>
+          </div>
+
+          <div class="space-y-1.5">
+            <div class="flex flex-wrap items-center gap-1">
+              <span class="text-[10px] uppercase tracking-wide text-muted-foreground">
+                上游协议顺序
+              </span>
+              {#each target.api_types as name (name)}
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary transition-colors hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
+                  onclick={() => toggleTargetProtocol(index, name)}
+                  title="点击移除"
+                >
+                  {apiLabel(name)}
+                  <span
+                    class="grid size-3 place-items-center rounded-full bg-primary text-[8px] text-primary-foreground"
+                  >
+                    {target.api_types.indexOf(name) + 1}
+                  </span>
+                  <XIcon class="size-2.5" />
+                </button>
+              {/each}
+              {#if !target.api_types.length}
+                <span class="text-[10px] text-amber-600 dark:text-amber-400">未选择</span>
+              {/if}
+
+              {#each APIS as [value, label] (value)}
+                {#if !target.api_types.includes(value)}
+                  <button
+                    type="button"
+                    class="rounded-full border border-dashed px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                    onclick={() => toggleTargetProtocol(index, value)}
+                  >
+                    + {label}
+                  </button>
+                {/if}
+              {/each}
+              <button
+                type="button"
+                class="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+                onclick={() => resetTargetProtocols(index)}
+              >
+                <RotateCcwIcon class="size-2.5" />
+                重置
+              </button>
+            </div>
+            <div class="truncate font-mono text-[10px] text-muted-foreground">
+              顺序：{protocolOrderText(target)} · Path: {targetPathHint(target)}
+            </div>
+            {#if target.provider_id && !modelsFor(target.provider_id).length}
+              <div class="text-[10px] text-amber-600 dark:text-amber-400">
+                该 Provider 还没有模型，请先在 Provider 详情添加。
+              </div>
+            {/if}
+          </div>
+        </div>
+      {/each}
+    </div>
+
+    <Dialog.Footer>
+      <Button variant="outline" onclick={() => (modalOpen = false)} disabled={saving}>取消</Button>
+      <Button onclick={save} disabled={saving}>
+        {#if saving}
+          <Spinner class="size-3.5" />
+          保存中…
+        {:else}
+          <CheckIcon />
+          保存
+        {/if}
+      </Button>
+    </Dialog.Footer>
+  </Dialog.Content>
+</Dialog.Root>
+
+<ConfirmDialog
+  bind:open={() => !!deleteTarget, (value) => !value && (deleteTarget = null)}
+  title="删除 Routing 规则"
+  description={`确定删除规则 ${deleteTarget?.virtual_model || ''}？使用该模型的客户端将立即失败。`}
+  busy={deleting}
+  onconfirm={remove}
+/>

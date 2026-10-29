@@ -1,7 +1,11 @@
 <script>
   import '../app.css';
-  import Toast from '$lib/components/Toast.svelte';
+  import { ModeWatcher } from 'mode-watcher';
+  import { Toaster } from '$lib/components/ui/sonner/index.js';
+
+  let { children } = $props();
 </script>
 
-<slot />
-<Toast />
+<ModeWatcher />
+{@render children?.()}
+<Toaster position="bottom-right" closeButton />

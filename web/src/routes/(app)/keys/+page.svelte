@@ -1,24 +1,49 @@
 <script>
   import { onMount } from 'svelte';
   import { api, fmtTime } from '$lib/api';
-  import { toast } from '$lib/toast';
-  import Modal from '$lib/components/Modal.svelte';
-  import Confirm from '$lib/components/Confirm.svelte';
-  import Badge from '$lib/components/Badge.svelte';
+  import { toast } from 'svelte-sonner';
+
+  import PlusIcon from '@lucide/svelte/icons/plus';
+  import PencilIcon from '@lucide/svelte/icons/pencil';
+  import Trash2Icon from '@lucide/svelte/icons/trash-2';
+  import KeyRoundIcon from '@lucide/svelte/icons/key-round';
+  import CopyIcon from '@lucide/svelte/icons/copy';
+  import CheckIcon from '@lucide/svelte/icons/check';
+  import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
+  import InboxIcon from '@lucide/svelte/icons/inbox';
+  import TerminalIcon from '@lucide/svelte/icons/terminal';
+
+  import * as Card from '$lib/components/ui/card/index.js';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import { Input } from '$lib/components/ui/input/index.js';
+  import { Label } from '$lib/components/ui/label/index.js';
+  import { Switch } from '$lib/components/ui/switch/index.js';
+  import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import * as Table from '$lib/components/ui/table/index.js';
+  import * as Empty from '$lib/components/ui/empty/index.js';
+  import { Skeleton } from '$lib/components/ui/skeleton/index.js';
+  import { Alert, AlertDescription } from '$lib/components/ui/alert/index.js';
+  import { Separator } from '$lib/components/ui/separator/index.js';
+  import { Spinner } from '$lib/components/ui/spinner/index.js';
+
+  import PageHeader from '$lib/components/app/page-header.svelte';
+  import StatusBadge from '$lib/components/app/status-badge.svelte';
+  import ConfirmDialog from '$lib/components/app/confirm-dialog.svelte';
 
   const blank = () => ({ name: '', app: '', allowed_models: [], enabled: true, expires_at: null });
-  let keys = [];
-  let loading = true;
-  let error = '';
-  let modalOpen = false;
-  let editingId = null;
-  let form = blank();
-  let modelsText = '';
-  let saving = false;
-  let createdKey = '';
-  let deleteTarget = null;
-  let deleting = false;
-  let copied = false;
+
+  let keys = $state([]);
+  let loading = $state(true);
+  let error = $state('');
+  let modalOpen = $state(false);
+  let editingId = $state(null);
+  let form = $state(blank());
+  let modelsText = $state('');
+  let saving = $state(false);
+  let createdKey = $state('');
+  let deleteTarget = $state(null);
+  let deleting = $state(false);
+  let copied = $state(false);
 
   async function load() {
     loading = true;
@@ -40,13 +65,16 @@
     modalOpen = true;
   }
 
-  function openEdit(k) {
-    editingId = k.id;
+  function openEdit(item) {
+    editingId = item.id;
     form = {
-      name: k.name, app: k.app || '', allowed_models: k.allowed_models || [],
-      enabled: k.enabled, expires_at: k.expires_at || null
+      name: item.name,
+      app: item.app || '',
+      allowed_models: item.allowed_models || [],
+      enabled: item.enabled,
+      expires_at: item.expires_at || null
     };
-    modelsText = (k.allowed_models || []).join(', ');
+    modelsText = (item.allowed_models || []).join(', ');
     createdKey = '';
     modalOpen = true;
   }
@@ -56,12 +84,15 @@
     try {
       const payload = {
         ...form,
-        allowed_models: modelsText.split(',').map((s) => s.trim()).filter(Boolean),
+        allowed_models: modelsText
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean),
         expires_at: form.expires_at ? new Date(form.expires_at).toISOString() : null
       };
       if (editingId) {
         await api(`/api/admin/keys/${editingId}`, { method: 'PUT', body: JSON.stringify(payload) });
-        toast('API Key 已更新');
+        toast.success('API Key 已更新');
         modalOpen = false;
         await load();
       } else {
@@ -70,7 +101,7 @@
         await load();
       }
     } catch (e) {
-      toast(e.message, 'error');
+      toast.error(e.message);
     } finally {
       saving = false;
     }
@@ -80,9 +111,10 @@
     try {
       await navigator.clipboard.writeText(createdKey);
       copied = true;
+      toast.success('已复制到剪贴板');
       setTimeout(() => (copied = false), 1600);
     } catch {
-      toast('复制失败，请手动选择复制', 'error');
+      toast.error('复制失败，请手动选择复制');
     }
   }
 
@@ -90,11 +122,11 @@
     deleting = true;
     try {
       await api(`/api/admin/keys/${deleteTarget.id}`, { method: 'DELETE' });
-      toast('API Key 已删除');
+      toast.success('API Key 已删除');
       deleteTarget = null;
       await load();
     } catch (e) {
-      toast(e.message, 'error');
+      toast.error(e.message);
     } finally {
       deleting = false;
     }
@@ -103,102 +135,232 @@
   onMount(load);
 </script>
 
-<svelte:head><title>API Keys · aigw</title></svelte:head>
+<svelte:head>
+  <title>API Keys · aigw</title>
+</svelte:head>
 
-<header class="page-head">
-  <div>
-    <h1>API Keys</h1>
-    <p>客户端使用这些 Key 调用网关。Key 仅展示一次，数据库只保存 SHA-256 哈希。</p>
-  </div>
-  <button class="btn primary" on:click={openCreate}>+ 创建 API Key</button>
-</header>
+<PageHeader
+  title="API Keys"
+  description="客户端使用这些 Key 调用网关。Key 仅展示一次，数据库只保存 SHA-256 哈希。"
+>
+  <Button onclick={openCreate}>
+    <PlusIcon />
+    创建 API Key
+  </Button>
+</PageHeader>
 
-{#if error}<div class="alert">{error}</div>{/if}
+{#if error}
+  <Alert variant="destructive">
+    <TriangleAlertIcon />
+    <AlertDescription>{error}</AlertDescription>
+  </Alert>
+{/if}
 
-<section class="panel">
-  <div class="table-wrap">
-    <table class="data">
-      <thead><tr><th>Name</th><th>App</th><th>Key Prefix</th><th>允许模型</th><th>状态</th><th>最后使用</th><th>过期时间</th><th>创建时间</th><th></th></tr></thead>
-      <tbody>
+<Card.Root class="gap-0">
+  <Card.Header class="border-b">
+    <div class="flex items-center justify-between gap-2">
+      <Card.Title class="text-sm">密钥列表</Card.Title>
+      <StatusBadge tone="neutral">{keys.length} 个</StatusBadge>
+    </div>
+  </Card.Header>
+  <Card.Content class="px-0">
+    <Table.Root>
+      <Table.Header>
+        <Table.Row>
+          <Table.Head>名称</Table.Head>
+          <Table.Head>App</Table.Head>
+          <Table.Head>Key Prefix</Table.Head>
+          <Table.Head>允许模型</Table.Head>
+          <Table.Head>状态</Table.Head>
+          <Table.Head>最后使用</Table.Head>
+          <Table.Head>过期时间</Table.Head>
+          <Table.Head>创建时间</Table.Head>
+          <Table.Head class="text-right">操作</Table.Head>
+        </Table.Row>
+      </Table.Header>
+      <Table.Body>
         {#if loading}
-          <tr><td colspan="9"><div class="empty"><div class="spinner" style="margin:auto"></div></div></td></tr>
+          {#each Array(4) as _, i (i)}
+            <Table.Row>
+              {#each Array(9) as __, j (j)}
+                <Table.Cell><Skeleton class="h-4 w-full" /></Table.Cell>
+              {/each}
+            </Table.Row>
+          {/each}
         {:else if !keys.length}
-          <tr><td colspan="9"><div class="empty">还没有 API Key。创建后即可通过 <code>Authorization: Bearer aigw_...</code> 调用网关。</div></td></tr>
+          <Table.Row class="hover:bg-transparent">
+            <Table.Cell colspan={9}>
+              <Empty.Root class="border-0 py-10">
+                <Empty.Header>
+                  <Empty.Media variant="icon"><KeyRoundIcon /></Empty.Media>
+                  <Empty.Title>还没有 API Key</Empty.Title>
+                  <Empty.Description>
+                    创建后即可通过 <code class="font-mono">Authorization: Bearer aigw_...</code>
+                    调用网关。
+                  </Empty.Description>
+                </Empty.Header>
+                <Empty.Content>
+                  <Button variant="outline" onclick={openCreate}>
+                    <PlusIcon />
+                    创建 API Key
+                  </Button>
+                </Empty.Content>
+              </Empty.Root>
+            </Table.Cell>
+          </Table.Row>
         {:else}
-          {#each keys as k (k.id)}
-            <tr>
-              <td><b>{k.name}</b></td>
-              <td>{k.app || '—'}</td>
-              <td class="mono">{k.key_prefix}…</td>
-              <td>
-                {#if k.allowed_models?.length}
-                  <div class="chips">{#each k.allowed_models as m}<span class="chip mono">{m}</span>{/each}</div>
-                {:else}<span class="any">全部模型</span>{/if}
-              </td>
-              <td><Badge tone={k.enabled ? 'green' : 'neutral'} dot>{k.enabled ? '启用' : '停用'}</Badge></td>
-              <td class="nowrap">{k.last_used_at ? fmtTime(k.last_used_at) : '从未'}</td>
-              <td class="nowrap">{k.expires_at ? fmtTime(k.expires_at) : '永不过期'}</td>
-              <td class="nowrap">{fmtTime(k.created_at)}</td>
-              <td class="row-actions">
-                <button class="btn sm" on:click={() => openEdit(k)}>编辑</button>
-                <button class="btn sm danger-lite" on:click={() => (deleteTarget = k)}>删除</button>
-              </td>
-            </tr>
+          {#each keys as item (item.id)}
+            <Table.Row>
+              <Table.Cell class="font-medium">{item.name}</Table.Cell>
+              <Table.Cell class="text-[11px]">{item.app || '—'}</Table.Cell>
+              <Table.Cell class="font-mono text-[11px] text-muted-foreground">
+                {item.key_prefix}…
+              </Table.Cell>
+              <Table.Cell>
+                {#if item.allowed_models?.length}
+                  <div class="flex min-w-0 flex-wrap gap-1">
+                    {#each item.allowed_models as model (model)}
+                      <StatusBadge tone="neutral" class="shrink-0 font-mono">{model}</StatusBadge>
+                    {/each}
+                  </div>
+                {:else}
+                  <span class="text-[11px] text-muted-foreground">全部模型</span>
+                {/if}
+              </Table.Cell>
+              <Table.Cell>
+                <StatusBadge tone={item.enabled ? 'success' : 'neutral'} dot>
+                  {item.enabled ? '启用' : '停用'}
+                </StatusBadge>
+              </Table.Cell>
+              <Table.Cell class="whitespace-nowrap text-[11px] tabular-nums">
+                {item.last_used_at ? fmtTime(item.last_used_at) : '从未'}
+              </Table.Cell>
+              <Table.Cell class="whitespace-nowrap text-[11px] tabular-nums">
+                {item.expires_at ? fmtTime(item.expires_at) : '永不过期'}
+              </Table.Cell>
+              <Table.Cell class="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground">
+                {fmtTime(item.created_at)}
+              </Table.Cell>
+              <Table.Cell>
+                <div class="flex items-center justify-end gap-1">
+                  <Button variant="ghost" size="xs" onclick={() => openEdit(item)}>
+                    <PencilIcon />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    class="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onclick={() => (deleteTarget = item)}
+                  >
+                    <Trash2Icon />
+                  </Button>
+                </div>
+              </Table.Cell>
+            </Table.Row>
           {/each}
         {/if}
-      </tbody>
-    </table>
-  </div>
-</section>
+      </Table.Body>
+    </Table.Root>
+  </Card.Content>
+</Card.Root>
 
-<Modal open={modalOpen} title={editingId ? '编辑 API Key' : '创建 API Key'} onclose={() => (modalOpen = false)}>
-  {#if createdKey}
-    <div class="created">
-      <h3>API Key 已创建</h3>
-      <p>请立即复制并妥善保存。关闭后无法再次查看完整 Key。</p>
-      <div class="key-box">
-        <code>{createdKey}</code>
-        <button class="btn sm" on:click={copyKey}>{copied ? '已复制' : '复制'}</button>
-      </div>
-      <div class="usage mono">curl http://localhost:8080/v1/chat/completions \<br />&nbsp;&nbsp;-H "Authorization: Bearer {createdKey}" \<br />&nbsp;&nbsp;-H "Content-Type: application/json" \<br />&nbsp;&nbsp;-d '&#123;"model":"deepseek-flash","messages":[&#123;"role":"user","content":"hi"&#125;]&#125;'</div>
-    </div>
-  {:else}
-    <div class="form">
-      <div class="field"><label for="k-name">名称</label><input id="k-name" class="input" bind:value={form.name} placeholder="production-app" /></div>
-      <div class="field"><label for="k-app">App / 业务标识</label><input id="k-app" class="input" bind:value={form.app} placeholder="my-app" /><div class="hint">会展示在日志与统计中，便于按业务筛选。</div></div>
-      <div class="field"><label for="k-models">允许的模型（逗号分隔，留空允许全部）</label><input id="k-models" class="input mono" bind:value={modelsText} placeholder="deepseek-flash, gpt-4o-mini" /></div>
-      <div class="field"><label for="k-expires">过期时间（可选）</label><input id="k-expires" class="input" type="datetime-local" bind:value={form.expires_at} /></div>
-      <label class="check"><input type="checkbox" bind:checked={form.enabled} /> 启用该 Key</label>
-    </div>
-  {/if}
-  <svelte:fragment slot="footer">
+<Dialog.Root bind:open={modalOpen}>
+  <Dialog.Content class={createdKey ? 'sm:max-w-xl' : 'sm:max-w-md'}>
+    <Dialog.Header>
+      <Dialog.Title>
+        {createdKey ? 'API Key 已创建' : editingId ? '编辑 API Key' : '创建 API Key'}
+      </Dialog.Title>
+      <Dialog.Description>
+        {createdKey
+          ? '请立即复制并妥善保存，关闭后无法再次查看完整 Key。'
+          : '配置名称、业务标识、可用模型范围与有效期。'}
+      </Dialog.Description>
+    </Dialog.Header>
+
     {#if createdKey}
-      <button class="btn primary" on:click={() => (modalOpen = false)}>完成</button>
+      <div class="space-y-3">
+        <div class="flex items-center gap-1.5 rounded-lg border bg-muted/50 p-2">
+          <code class="min-w-0 flex-1 break-all font-mono text-[11px]">{createdKey}</code>
+          <Button size="sm" variant="outline" onclick={copyKey}>
+            {#if copied}
+              <CheckIcon />
+              已复制
+            {:else}
+              <CopyIcon />
+              复制
+            {/if}
+          </Button>
+        </div>
+        <div class="space-y-1.5">
+          <div class="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+            <TerminalIcon class="size-3.5" />
+            调用示例
+          </div>
+          <pre
+            class="overflow-x-auto rounded-lg border bg-muted/50 p-2.5 font-mono text-[10.5px] leading-relaxed text-muted-foreground">{`curl http://localhost:8080/v1/chat/completions \\
+  -H "Authorization: Bearer ${createdKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"model":"deepseek-flash","messages":[{"role":"user","content":"hi"}]}'`}</pre>
+        </div>
+      </div>
     {:else}
-      <button class="btn ghost" on:click={() => (modalOpen = false)} disabled={saving}>取消</button>
-      <button class="btn primary" on:click={save} disabled={saving || !form.name}>{saving ? '保存中…' : '保存'}</button>
+      <div class="grid gap-3">
+        <div class="grid gap-1.5">
+          <Label for="k-name">名称</Label>
+          <Input id="k-name" bind:value={form.name} placeholder="production-app" />
+        </div>
+        <div class="grid gap-1.5">
+          <Label for="k-app">App / 业务标识</Label>
+          <Input id="k-app" bind:value={form.app} placeholder="my-app" />
+          <p class="text-[10.5px] text-muted-foreground">会展示在日志与统计中，便于按业务筛选。</p>
+        </div>
+        <div class="grid gap-1.5">
+          <Label for="k-models">允许的模型（逗号分隔，留空允许全部）</Label>
+          <Input
+            id="k-models"
+            class="font-mono text-[11px]"
+            bind:value={modelsText}
+            placeholder="deepseek-flash, gpt-4o-mini"
+          />
+        </div>
+        <div class="grid gap-1.5">
+          <Label for="k-expires">过期时间（可选）</Label>
+          <Input id="k-expires" type="datetime-local" bind:value={form.expires_at} />
+        </div>
+        <Separator />
+        <div class="flex items-center justify-between gap-2">
+          <div class="space-y-0.5">
+            <div class="text-xs font-medium">启用该 Key</div>
+            <div class="text-[10.5px] text-muted-foreground">停用后客户端立即无法访问</div>
+          </div>
+          <Switch bind:checked={form.enabled} />
+        </div>
+      </div>
     {/if}
-  </svelte:fragment>
-</Modal>
 
-<Confirm open={!!deleteTarget} title="删除 API Key" message={`确定删除 ${deleteTarget?.name || ''}？使用该 Key 的客户端将立即无法访问。`} busy={deleting} onconfirm={remove} onclose={() => (deleteTarget = null)} />
+    <Dialog.Footer>
+      {#if createdKey}
+        <Button onclick={() => (modalOpen = false)}>完成</Button>
+      {:else}
+        <Button variant="outline" onclick={() => (modalOpen = false)} disabled={saving}>取消</Button>
+        <Button onclick={save} disabled={saving || !form.name}>
+          {#if saving}
+            <Spinner class="size-3.5" />
+            保存中…
+          {:else}
+            <CheckIcon />
+            保存
+          {/if}
+        </Button>
+      {/if}
+    </Dialog.Footer>
+  </Dialog.Content>
+</Dialog.Root>
 
-<style>
-  .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; margin-bottom: 20px; }
-  h1 { margin: 0; font-size: 23px; letter-spacing: -.03em; }
-  .page-head p { margin: 6px 0 0; color: #64748b; font-size: 13px; }
-  .alert { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 2px; padding: 9px 12px; margin-bottom: 12px; font-size: 13px; }
-  .chips { display: flex; gap: 4px; flex-wrap: wrap; }
-  .any { color: #94a3b8; font-size: 11.5px; }
-  .nowrap { white-space: nowrap; }
-  .row-actions { display: flex; gap: 5px; justify-content: flex-end; }
-  .danger-lite { color: #b91c1c; }
-  .danger-lite:hover { background: #fef2f2; border-color: #fecaca; }
-  .form { display: flex; flex-direction: column; gap: 15px; }
-  .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #334155; }
-  .created h3 { margin: 0 0 7px; font-size: 15px; }
-  .created p { margin: 0 0 14px; color: #64748b; font-size: 12.5px; }
-  .key-box { display: flex; gap: 9px; align-items: center; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 2px; padding: 9px; }
-  .key-box code { flex: 1; word-break: break-all; font-size: 12px; }
-  .usage { margin-top: 12px; background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; padding: 10px; border-radius: 2px; font-size: 11px; line-height: 1.8; overflow-x: auto; }
-</style>
+<ConfirmDialog
+  bind:open={() => !!deleteTarget, (value) => !value && (deleteTarget = null)}
+  title="删除 API Key"
+  description={`确定删除 ${deleteTarget?.name || ''}？使用该 Key 的客户端将立即无法访问。`}
+  busy={deleting}
+  onconfirm={remove}
+/>

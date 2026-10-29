@@ -1,8 +1,13 @@
 import { browser } from '$app/environment';
 import { goto } from '$app/navigation';
 
-const API_BASE = import.meta.env.PUBLIC_API_BASE || '';
+export const API_BASE = import.meta.env.PUBLIC_API_BASE || '';
 const TOKEN_KEY = 'aigw_admin_token';
+
+/** Resolve an API path against the configured base (empty = same origin). */
+export function apiURL(path) {
+  return `${API_BASE}${path}`;
+}
 
 export function getToken() {
   if (!browser) return '';

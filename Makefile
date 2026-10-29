@@ -14,7 +14,7 @@ help:
 	@echo "  make web          build the SvelteKit frontend into web/build"
 	@echo "  make build        build the Go binary and frontend"
 	@echo "  make run          run the gateway (expects configs/config.yml or AIGW_* env)"
-	@echo "  make dev          run backend and frontend dev servers in parallel"
+	@echo "  make dev          run backend and frontend dev servers in parallel (AIGW_DEV_BACKEND overrides proxy target)"
 	@echo "  make test         run all Go tests"
 	@echo "  make web-check    run svelte-check on the frontend"
 	@echo "  make fmt          format Go sources"
