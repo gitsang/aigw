@@ -113,8 +113,8 @@ func (h *Handler) createProvider(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	if strings.TrimSpace(in.Name) == "" || strings.TrimSpace(in.BaseURL) == "" {
-		writeError(w, http.StatusBadRequest, "name and base_url are required")
+	if msg := validateProviderInput(in); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
 	item, err := h.store.CreateProvider(r.Context(), in)
@@ -130,8 +130,8 @@ func (h *Handler) updateProvider(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	if strings.TrimSpace(in.Name) == "" || strings.TrimSpace(in.BaseURL) == "" {
-		writeError(w, http.StatusBadRequest, "name and base_url are required")
+	if msg := validateProviderInput(in); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
 	item, err := h.store.UpdateProvider(r.Context(), chi.URLParam(r, "id"), in)
@@ -140,6 +140,45 @@ func (h *Handler) updateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
+}
+
+// validateProviderInput rejects configurations that would fail at request time,
+// so operators see the problem while editing instead of on the gateway path.
+func validateProviderInput(in store.ProviderInput) string {
+	if strings.TrimSpace(in.Name) == "" || strings.TrimSpace(in.BaseURL) == "" {
+		return "name and base_url are required"
+	}
+	switch in.ProxyType {
+	case store.ProxyHTTP, store.ProxySOCKS5:
+		if strings.TrimSpace(in.ProxyURL) == "" {
+			return "proxy_url is required when a proxy type is selected"
+		}
+	case store.ProxyNone:
+		if strings.TrimSpace(in.ProxyURL) != "" {
+			return "proxy_type is required when proxy_url is set"
+		}
+	default:
+		return "proxy_type must be one of '', 'http', 'socks5'"
+	}
+	if in.RetryCount < 0 || in.RetryCount > 20 {
+		return "retry_count must be between 0 and 20"
+	}
+	// An omitted backoff defaults to exponential, matching the store defaults.
+	if in.RetryBackoff != "" &&
+		in.RetryBackoff != store.BackoffLinear && in.RetryBackoff != store.BackoffExponential {
+		return "retry_backoff must be 'exponential' or 'linear'"
+	}
+	if in.RetryInitialMS < 0 || in.RetryMaxMS < 0 || in.RetryLinearIntervalMS < 0 {
+		return "retry delays must not be negative"
+	}
+	if in.HealthCheckIntervalMS < 0 || in.HealthCheckTimeoutMS < 0 {
+		return "health check interval and timeout must not be negative"
+	}
+	if strings.EqualFold(in.HealthCheckMethod, "GET") &&
+		strings.TrimSpace(in.HealthCheckBody) != "" {
+		return "health_check_body cannot be used with the GET method"
+	}
+	return ""
 }
 
 func (h *Handler) deleteProvider(w http.ResponseWriter, r *http.Request) {
@@ -370,14 +409,14 @@ func (h *Handler) deleteProviderModel(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) discoverProviderModels(w http.ResponseWriter, r *http.Request) {
 	providerID := chi.URLParam(r, "id")
-	provider, apiKey, err := h.store.ProviderCredentials(r.Context(), providerID)
+	provider, creds, err := h.store.ProviderCredentials(r.Context(), providerID)
 	if err != nil {
 		h.fail(w, err)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	discovered, err := upstream.NewClient().ListModels(ctx, provider, apiKey, provider.Headers)
+	discovered, err := upstream.NewClient().ListModels(ctx, provider, creds.APIKey, creds.ProxyPassword, provider.Headers)
 	if err != nil {
 		h.fail(w, err)
 		return

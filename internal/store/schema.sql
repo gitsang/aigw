@@ -154,3 +154,35 @@ FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 DROP TRIGGER IF EXISTS provider_models_set_updated_at ON provider_models;
 CREATE TRIGGER provider_models_set_updated_at BEFORE UPDATE ON provider_models
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ------------------------------------------------- provider behavior settings
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
+
+-- Per-provider request retry, applied around each upstream call. A retry count of
+-- 0 keeps the routing-rule policy as the only retry layer.
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0
+    CHECK (retry_count BETWEEN 0 AND 20);
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS retry_backoff TEXT NOT NULL DEFAULT 'exponential'
+    CHECK (retry_backoff IN ('exponential', 'linear'));
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS retry_initial_ms INTEGER NOT NULL DEFAULT 500
+    CHECK (retry_initial_ms >= 0);
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS retry_max_ms INTEGER NOT NULL DEFAULT 10000
+    CHECK (retry_max_ms >= 0);
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS retry_linear_interval_ms INTEGER NOT NULL DEFAULT 5000
+    CHECK (retry_linear_interval_ms >= 0);
+
+-- Outbound proxy. proxy_type '' means "connect directly".
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS proxy_type TEXT NOT NULL DEFAULT ''
+    CHECK (proxy_type IN ('', 'http', 'socks5'));
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS proxy_url TEXT NOT NULL DEFAULT '';
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS proxy_username TEXT NOT NULL DEFAULT '';
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS proxy_password_ciphertext TEXT NOT NULL DEFAULT '';
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS proxy_password_last4 TEXT NOT NULL DEFAULT '';
+
+-- Health check overrides. Interval/timeout of 0 fall back to the global config.
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS health_check_headers JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS health_check_body TEXT NOT NULL DEFAULT '';
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS health_check_interval_ms INTEGER NOT NULL DEFAULT 0
+    CHECK (health_check_interval_ms >= 0);
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS health_check_timeout_ms INTEGER NOT NULL DEFAULT 0
+    CHECK (health_check_timeout_ms >= 0);

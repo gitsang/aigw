@@ -282,24 +282,40 @@ source=CASE WHEN provider_models.source='manual' THEN 'manual' ELSE 'discovered'
 
 // ProviderCredentials returns the decrypted connection settings for a provider,
 // used by model discovery and health checks.
-func (s *Store) ProviderCredentials(ctx context.Context, providerID string) (Provider, string, error) {
+// ProviderCredentials loads a provider together with its decrypted API key and
+// proxy password.
+func (s *Store) ProviderCredentials(ctx context.Context, providerID string) (Provider, Credentials, error) {
 	p, err := s.GetProvider(ctx, providerID)
 	if err != nil {
-		return p, "", err
+		return p, Credentials{}, err
 	}
-	var ct string
-	if err := s.pool.QueryRow(ctx, `SELECT api_key_ciphertext FROM providers WHERE id=$1`, providerID).Scan(&ct); err != nil {
-		return p, "", err
+	var ct, proxyCT string
+	if err := s.pool.QueryRow(ctx,
+		`SELECT api_key_ciphertext, proxy_password_ciphertext FROM providers WHERE id=$1`,
+		providerID).Scan(&ct, &proxyCT); err != nil {
+		return p, Credentials{}, err
 	}
-	key, err := s.cipher.Decrypt(ct)
-	return p, key, err
+	var creds Credentials
+	if ct != "" {
+		creds.APIKey, err = s.cipher.Decrypt(ct)
+		if err != nil {
+			return p, creds, err
+		}
+	}
+	if proxyCT != "" {
+		creds.ProxyPassword, err = s.cipher.Decrypt(proxyCT)
+		if err != nil {
+			return p, creds, err
+		}
+	}
+	return p, creds, nil
 }
 
 // ResolveTarget loads a runtime target and resolves its upstream protocol and
 // path from the model definition, provider-level config and built-in defaults.
 func (s *Store) ResolveTarget(ctx context.Context, targetID, inboundAPIType string) (RuntimeTarget, error) {
 	var t RuntimeTarget
-	var ct string
+	var ct, proxyCT string
 	var headers []byte
 	var targetTypes, providerTypes []string
 	var providerOverridesRaw []byte
@@ -314,7 +330,10 @@ SELECT t.id, t.rule_id, t.role, p.id, p.name, p.base_url, p.auth_type,
        COALESCE(pm.output_price_per_million,0)::float8,
        p.api_types, p.path_overrides,
        COALESCE(pm.model_id,''), COALESCE(pm.api_types,'{}'::text[]),
-       COALESCE(pm.path_overrides,'{}'::jsonb)
+       COALESCE(pm.path_overrides,'{}'::jsonb),
+       p.proxy_type, p.proxy_url, p.proxy_username, p.proxy_password_ciphertext,
+       p.retry_count, p.retry_backoff, p.retry_initial_ms, p.retry_max_ms,
+       p.retry_linear_interval_ms
 FROM routing_targets t
 JOIN providers p ON p.id=t.provider_id
 LEFT JOIN provider_models pm ON pm.id=t.provider_model_id
@@ -323,7 +342,10 @@ WHERE t.id=$1 AND t.enabled=TRUE AND p.enabled=TRUE
 		&t.TargetID, &t.RuleID, &t.Role, &t.ProviderID, &t.ProviderName, &t.BaseURL,
 		&t.AuthType, &ct, &headers, &t.TimeoutMS, &t.UpstreamModel, &targetTypes,
 		&t.Weight, &t.Priority, &t.InputPrice, &t.OutputPrice,
-		&providerTypes, &providerOverridesRaw, &modelID, &modelTypes, &modelOverridesRaw)
+		&providerTypes, &providerOverridesRaw, &modelID, &modelTypes, &modelOverridesRaw,
+		&t.Proxy.Type, &t.Proxy.URL, &t.Proxy.Username, &proxyCT,
+		&t.Retry.Count, &t.Retry.Backoff, &t.Retry.InitialMS, &t.Retry.MaxMS,
+		&t.Retry.LinearDelayMS)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return t, ErrNotFound
 	}
@@ -332,6 +354,9 @@ WHERE t.id=$1 AND t.enabled=TRUE AND p.enabled=TRUE
 	}
 	if ct != "" {
 		t.APIKey, _ = s.cipher.Decrypt(ct)
+	}
+	if proxyCT != "" {
+		t.Proxy.Password, _ = s.cipher.Decrypt(proxyCT)
 	}
 	t.Headers = decodeHeaders(headers)
 

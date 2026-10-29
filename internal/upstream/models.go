@@ -19,7 +19,7 @@ type DiscoveredModel struct {
 }
 
 // ListModels calls the provider's OpenAI-compatible /models endpoint.
-func (c *Client) ListModels(ctx context.Context, provider store.Provider, apiKey string, headers map[string]string) ([]DiscoveredModel, error) {
+func (c *Client) ListModels(ctx context.Context, provider store.Provider, apiKey string, proxyPassword string, headers map[string]string) ([]DiscoveredModel, error) {
 	endpoint, err := BuildURL(provider.BaseURL, "/v1/models")
 	if err != nil {
 		return nil, err
@@ -37,7 +37,14 @@ func (c *Client) ListModels(ctx context.Context, provider store.Provider, apiKey
 			req.Header.Set(k, v)
 		}
 	}
-	resp, err := c.HTTP.Do(req)
+	client, err := c.clientFor(store.ProxySettings{
+		Type: provider.ProxyType, URL: provider.ProxyURL,
+		Username: provider.ProxyUsername, Password: proxyPassword,
+	})
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}

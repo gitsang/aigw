@@ -13,9 +13,23 @@ const (
 	RoleFallback = "fallback"
 )
 
+// Proxy types accepted by a provider. An empty ProxyType disables the proxy.
+const (
+	ProxyNone   = ""
+	ProxyHTTP   = "http"
+	ProxySOCKS5 = "socks5"
+)
+
+// Retry backoff strategies for per-provider request retries.
+const (
+	BackoffExponential = "exponential"
+	BackoffLinear      = "linear"
+)
+
 type Provider struct {
 	ID                string            `json:"id"`
 	Name              string            `json:"name"`
+	Description       string            `json:"description"`
 	BaseURL           string            `json:"base_url"`
 	AuthType          string            `json:"auth_type"`
 	APIKeyLast4       string            `json:"api_key_last4"`
@@ -27,14 +41,37 @@ type Provider struct {
 	APITypes          []string          `json:"api_types"`
 	PathOverrides     map[string]string `json:"path_overrides"`
 	Enabled           bool              `json:"enabled"`
-	CreatedAt         time.Time         `json:"created_at"`
-	UpdatedAt         time.Time         `json:"updated_at"`
-	HealthyTargets    int               `json:"healthy_targets,omitempty"`
-	TotalTargets      int               `json:"total_targets,omitempty"`
+
+	// Per-provider request retry. RetryCount of 0 leaves the routing rule as the
+	// only retry layer.
+	RetryCount            int    `json:"retry_count"`
+	RetryBackoff          string `json:"retry_backoff"`
+	RetryInitialMS        int    `json:"retry_initial_ms"`
+	RetryMaxMS            int    `json:"retry_max_ms"`
+	RetryLinearIntervalMS int    `json:"retry_linear_interval_ms"`
+
+	// Outbound proxy settings.
+	ProxyType          string `json:"proxy_type"`
+	ProxyURL           string `json:"proxy_url"`
+	ProxyUsername      string `json:"proxy_username"`
+	HasProxyPassword   bool   `json:"has_proxy_password"`
+	ProxyPasswordLast4 string `json:"proxy_password_last4"`
+
+	// Health check overrides. An interval or timeout of 0 uses the global config.
+	HealthCheckHeaders    map[string]string `json:"health_check_headers"`
+	HealthCheckBody       string            `json:"health_check_body"`
+	HealthCheckIntervalMS int               `json:"health_check_interval_ms"`
+	HealthCheckTimeoutMS  int               `json:"health_check_timeout_ms"`
+
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	HealthyTargets int       `json:"healthy_targets,omitempty"`
+	TotalTargets   int       `json:"total_targets,omitempty"`
 }
 
 type ProviderInput struct {
 	Name              string            `json:"name"`
+	Description       string            `json:"description"`
 	BaseURL           string            `json:"base_url"`
 	AuthType          string            `json:"auth_type"`
 	APIKey            string            `json:"api_key"`
@@ -45,6 +82,22 @@ type ProviderInput struct {
 	APITypes          []string          `json:"api_types"`
 	PathOverrides     map[string]string `json:"path_overrides"`
 	Enabled           *bool             `json:"enabled"`
+
+	RetryCount            int    `json:"retry_count"`
+	RetryBackoff          string `json:"retry_backoff"`
+	RetryInitialMS        int    `json:"retry_initial_ms"`
+	RetryMaxMS            int    `json:"retry_max_ms"`
+	RetryLinearIntervalMS int    `json:"retry_linear_interval_ms"`
+
+	ProxyType     string `json:"proxy_type"`
+	ProxyURL      string `json:"proxy_url"`
+	ProxyUsername string `json:"proxy_username"`
+	ProxyPassword string `json:"proxy_password"`
+
+	HealthCheckHeaders    map[string]string `json:"health_check_headers"`
+	HealthCheckBody       string            `json:"health_check_body"`
+	HealthCheckIntervalMS int               `json:"health_check_interval_ms"`
+	HealthCheckTimeoutMS  int               `json:"health_check_timeout_ms"`
 }
 
 type RouteTarget struct {
