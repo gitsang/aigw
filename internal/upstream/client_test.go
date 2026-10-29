@@ -5,8 +5,8 @@ import "testing"
 func TestBuildURL(t *testing.T) {
 	tests := []struct{ base, path, want string }{
 		{"https://api.openai.com", "/v1/chat/completions", "https://api.openai.com/v1/chat/completions"},
-		{"https://api.openai.com/v1", "/v1/chat/completions", "https://api.openai.com/v1/chat/completions"},
-		{"https://openrouter.ai/api/v1/", "/v1/chat/completions", "https://openrouter.ai/api/v1/chat/completions"},
+		{"https://openrouter.ai/api/v1", "/chat/completions", "https://openrouter.ai/api/v1/chat/completions"},
+		{"https://openrouter.ai/api/v1/", "/chat/completions", "https://openrouter.ai/api/v1/chat/completions"},
 		{"http://localhost:9000", "v1/messages", "http://localhost:9000/v1/messages"},
 	}
 	for _, tt := range tests {

@@ -247,12 +247,7 @@ func BuildURL(baseURL, upstreamPath string) (string, error) {
 	if !strings.HasPrefix(upstreamPath, "/") {
 		upstreamPath = "/" + upstreamPath
 	}
-	basePath := strings.TrimSuffix(u.Path, "/")
-	path := upstreamPath
-	if strings.HasSuffix(basePath, "/v1") && strings.HasPrefix(path, "/v1/") {
-		path = strings.TrimPrefix(path, "/v1")
-	}
-	u.Path = basePath + path
+	u.Path = strings.TrimSuffix(u.Path, "/") + upstreamPath
 	u.RawQuery = ""
 	return u.String(), nil
 }

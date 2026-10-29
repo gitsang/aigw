@@ -419,11 +419,7 @@
               </div>
               <div class="grid gap-1.5">
                 <Label for="p-base">Base URL</Label>
-                <Input
-                  id="p-base"
-                  bind:value={form.base_url}
-                  placeholder="https://api.example.com/v1"
-                />
+                <Input id="p-base" bind:value={form.base_url} placeholder="https://api.example.com" />
               </div>
               <div class="grid gap-1.5 sm:col-span-2">
                 <Label for="p-desc">描述</Label>
