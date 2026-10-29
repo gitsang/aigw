@@ -114,15 +114,11 @@ CREATE TABLE IF NOT EXISTS provider_models (
     source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'discovered')),
     api_types TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
     path_overrides JSONB NOT NULL DEFAULT '{}'::jsonb,
-    input_price_per_million NUMERIC(14,6) NOT NULL DEFAULT 0,
-    output_price_per_million NUMERIC(14,6) NOT NULL DEFAULT 0,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (provider_id, model_id)
 );
-ALTER TABLE provider_models ADD COLUMN IF NOT EXISTS input_price_per_million NUMERIC(14,6) NOT NULL DEFAULT 0;
-ALTER TABLE provider_models ADD COLUMN IF NOT EXISTS output_price_per_million NUMERIC(14,6) NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS idx_provider_models_provider_id ON provider_models(provider_id);
 
 ALTER TABLE routing_targets
@@ -186,3 +182,42 @@ ALTER TABLE providers ADD COLUMN IF NOT EXISTS health_check_interval_ms INTEGER 
     CHECK (health_check_interval_ms >= 0);
 ALTER TABLE providers ADD COLUMN IF NOT EXISTS health_check_timeout_ms INTEGER NOT NULL DEFAULT 0
     CHECK (health_check_timeout_ms >= 0);
+
+-- ------------------------------------------------- provider slug + model costs
+-- Short human-readable identifier shown next to the provider name. Backfilled
+-- from the name for existing rows so the UI always has something to show.
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS slug TEXT NOT NULL DEFAULT '';
+UPDATE providers SET slug = name WHERE slug = '';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_providers_slug ON providers(slug) WHERE slug <> '';
+
+-- Model context window and max output tokens (0 = unknown / provider default).
+ALTER TABLE provider_models ADD COLUMN IF NOT EXISTS context_window INTEGER NOT NULL DEFAULT 0
+    CHECK (context_window >= 0);
+ALTER TABLE provider_models ADD COLUMN IF NOT EXISTS max_output_tokens INTEGER NOT NULL DEFAULT 0
+    CHECK (max_output_tokens >= 0);
+
+-- Flat per-million-token pricing. Currency is an ISO 4217 code.
+ALTER TABLE provider_models ADD COLUMN IF NOT EXISTS cost_currency TEXT NOT NULL DEFAULT 'USD';
+ALTER TABLE provider_models ADD COLUMN IF NOT EXISTS cost_input NUMERIC(14,6) NOT NULL DEFAULT 0;
+ALTER TABLE provider_models ADD COLUMN IF NOT EXISTS cost_output NUMERIC(14,6) NOT NULL DEFAULT 0;
+ALTER TABLE provider_models ADD COLUMN IF NOT EXISTS cost_cache_read NUMERIC(14,6) NOT NULL DEFAULT 0;
+ALTER TABLE provider_models ADD COLUMN IF NOT EXISTS cost_cache_write NUMERIC(14,6) NOT NULL DEFAULT 0;
+
+-- Tiered pricing: [{"input_tokens_above":200000,"input":..,"output":..,
+-- "cache_read":..,"cache_write":..}], applied once input tokens exceed the
+-- threshold. Empty means flat pricing above.
+ALTER TABLE provider_models ADD COLUMN IF NOT EXISTS cost_tiers JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+-- Seed the new pricing columns from the legacy pair, then retire them. Guarded
+-- so re-running the schema on an already-migrated database is a no-op.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'provider_models' AND column_name = 'input_price_per_million') THEN
+        UPDATE provider_models
+        SET cost_input = input_price_per_million, cost_output = output_price_per_million
+        WHERE cost_input = 0 AND cost_output = 0;
+        ALTER TABLE provider_models DROP COLUMN input_price_per_million;
+        ALTER TABLE provider_models DROP COLUMN output_price_per_million;
+    END IF;
+END $$;

@@ -148,6 +148,14 @@ func validateProviderInput(in store.ProviderInput) string {
 	if strings.TrimSpace(in.Name) == "" || strings.TrimSpace(in.BaseURL) == "" {
 		return "name and base_url are required"
 	}
+	if slug := strings.TrimSpace(in.Slug); slug != "" {
+		for _, r := range slug {
+			ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_'
+			if !ok {
+				return "slug may only contain lowercase letters, digits, '-' and '_'"
+			}
+		}
+	}
 	switch in.ProxyType {
 	case store.ProxyHTTP, store.ProxySOCKS5:
 		if strings.TrimSpace(in.ProxyURL) == "" {
@@ -440,6 +448,10 @@ func (h *Handler) fail(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, store.ErrConflict) {
 		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	if errors.Is(err, store.ErrInvalid) {
+		writeError(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), store.ErrInvalid.Error()+": "))
 		return
 	}
 	h.log.Error("admin request failed", "error", err)

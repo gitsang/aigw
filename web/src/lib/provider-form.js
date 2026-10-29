@@ -17,6 +17,7 @@ export function apiFormatDefaultPath(value) {
 /** Empty provider form, mirroring the admin API payload. */
 export function blankProvider() {
   return {
+    slug: '',
     name: '',
     description: '',
     base_url: '',
@@ -48,6 +49,7 @@ export function blankProvider() {
 /** Map an API provider record onto the editable form shape. */
 export function providerToForm(provider) {
   const form = blankProvider();
+  form.slug = provider.slug ?? '';
   form.name = provider.name ?? '';
   form.description = provider.description ?? '';
   form.base_url = provider.base_url ?? '';
@@ -96,6 +98,7 @@ export function formToPayload(form) {
     if (path) pathOverrides[protocol.value] = path;
   }
   return {
+    slug: (form.slug || '').trim(),
     name: form.name.trim(),
     description: form.description ?? '',
     base_url: form.base_url.trim(),

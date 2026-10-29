@@ -28,6 +28,7 @@ const (
 
 type Provider struct {
 	ID                string            `json:"id"`
+	Slug              string            `json:"slug"`
 	Name              string            `json:"name"`
 	Description       string            `json:"description"`
 	BaseURL           string            `json:"base_url"`
@@ -70,6 +71,7 @@ type Provider struct {
 }
 
 type ProviderInput struct {
+	Slug              string            `json:"slug"`
 	Name              string            `json:"name"`
 	Description       string            `json:"description"`
 	BaseURL           string            `json:"base_url"`
@@ -169,30 +171,59 @@ type RouteTargetInput struct {
 	Enabled         *bool    `json:"enabled"`
 }
 
+// CostTier is a price bracket that applies once the request's input token
+// count exceeds InputTokensAbove.
+type CostTier struct {
+	InputTokensAbove int     `json:"input_tokens_above"`
+	Input            float64 `json:"input"`
+	Output           float64 `json:"output"`
+	CacheRead        float64 `json:"cache_read"`
+	CacheWrite       float64 `json:"cache_write"`
+}
+
+// ModelCost is the per-million-token price list for a model, in an ISO 4217
+// currency. Tiers override the flat prices once the input token count is
+// exceeded; an empty tier list means flat pricing always applies.
+type ModelCost struct {
+	Currency   string     `json:"currency"`
+	Input      float64    `json:"input"`
+	Output     float64    `json:"output"`
+	CacheRead  float64    `json:"cache_read"`
+	CacheWrite float64    `json:"cache_write"`
+	Tiers      []CostTier `json:"tiers"`
+}
+
+// DefaultModelCost is the price list used when a model has none configured.
+func DefaultModelCost() ModelCost {
+	return ModelCost{Currency: "USD", Tiers: []CostTier{}}
+}
+
 // ProviderModel is one upstream model exposed by a provider.
 type ProviderModel struct {
-	ID                    string            `json:"id"`
-	ProviderID            string            `json:"provider_id"`
-	ModelID               string            `json:"model_id"`
-	DisplayName           string            `json:"display_name"`
-	Source                string            `json:"source"`
-	APITypes              []string          `json:"api_types"`
-	PathOverrides         map[string]string `json:"path_overrides"`
-	InputPricePerMillion  float64           `json:"input_price_per_million"`
-	OutputPricePerMillion float64           `json:"output_price_per_million"`
-	Enabled               bool              `json:"enabled"`
-	CreatedAt             time.Time         `json:"created_at"`
-	UpdatedAt             time.Time         `json:"updated_at"`
+	ID              string            `json:"id"`
+	ProviderID      string            `json:"provider_id"`
+	ModelID         string            `json:"model_id"`
+	DisplayName     string            `json:"display_name"`
+	Source          string            `json:"source"`
+	APITypes        []string          `json:"api_types"`
+	PathOverrides   map[string]string `json:"path_overrides"`
+	ContextWindow   int               `json:"context_window"`
+	MaxOutputTokens int               `json:"max_output_tokens"`
+	Cost            ModelCost         `json:"cost"`
+	Enabled         bool              `json:"enabled"`
+	CreatedAt       time.Time         `json:"created_at"`
+	UpdatedAt       time.Time         `json:"updated_at"`
 }
 
 type ProviderModelInput struct {
-	ModelID               string            `json:"model_id"`
-	DisplayName           string            `json:"display_name"`
-	APITypes              []string          `json:"api_types"`
-	PathOverrides         map[string]string `json:"path_overrides"`
-	InputPricePerMillion  float64           `json:"input_price_per_million"`
-	OutputPricePerMillion float64           `json:"output_price_per_million"`
-	Enabled               *bool             `json:"enabled"`
+	ModelID         string            `json:"model_id"`
+	DisplayName     string            `json:"display_name"`
+	APITypes        []string          `json:"api_types"`
+	PathOverrides   map[string]string `json:"path_overrides"`
+	ContextWindow   int               `json:"context_window"`
+	MaxOutputTokens int               `json:"max_output_tokens"`
+	Cost            ModelCost         `json:"cost"`
+	Enabled         *bool             `json:"enabled"`
 }
 
 // APITypeResolution is the effective protocol/path for one model or target.

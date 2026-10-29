@@ -23,6 +23,8 @@ var schemaFS embed.FS
 var (
 	ErrNotFound = errors.New("not found")
 	ErrConflict = errors.New("conflict")
+	// ErrInvalid marks caller-supplied data that failed validation.
+	ErrInvalid = errors.New("invalid input")
 )
 
 type Store struct {
@@ -125,8 +127,7 @@ type RuntimeTarget struct {
 	UpstreamPath  string
 	Weight        int
 	Priority      int
-	InputPrice    float64
-	OutputPrice   float64
+	Cost          ModelCost
 	Proxy         ProxySettings
 	Retry         RetryPolicy
 }
@@ -214,7 +215,7 @@ func decodeHeaders(raw []byte) map[string]string {
 
 func (s *Store) ListProviders(ctx context.Context) ([]Provider, error) {
 	rows, err := s.pool.Query(ctx, `
-SELECT p.id, p.name, p.description, p.base_url, p.auth_type, p.api_key_last4,
+SELECT p.id, p.slug, p.name, p.description, p.base_url, p.auth_type, p.api_key_last4,
        (p.api_key_ciphertext <> ''), p.headers, p.health_check_url, p.health_check_method,
        p.timeout_ms, p.api_types, p.path_overrides,
        p.enabled, p.created_at, p.updated_at,
@@ -248,7 +249,7 @@ GROUP BY p.id ORDER BY p.created_at ASC`)
 func scanProvider(row rowScanner) (Provider, error) {
 	var p Provider
 	var headers, pathOverrides, healthHeaders []byte
-	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.BaseURL, &p.AuthType, &p.APIKeyLast4, &p.HasAPIKey,
+	err := row.Scan(&p.ID, &p.Slug, &p.Name, &p.Description, &p.BaseURL, &p.AuthType, &p.APIKeyLast4, &p.HasAPIKey,
 		&headers, &p.HealthCheckURL, &p.HealthCheckMethod, &p.TimeoutMS,
 		&p.APITypes, &pathOverrides,
 		&p.Enabled, &p.CreatedAt, &p.UpdatedAt, &p.TotalTargets, &p.HealthyTargets,
@@ -274,7 +275,7 @@ func scanProvider(row rowScanner) (Provider, error) {
 }
 
 const providerSelect = `
-SELECT p.id, p.name, p.description, p.base_url, p.auth_type, p.api_key_last4,
+SELECT p.id, p.slug, p.name, p.description, p.base_url, p.auth_type, p.api_key_last4,
        (p.api_key_ciphertext <> ''), p.headers, p.health_check_url, p.health_check_method,
        p.timeout_ms, p.api_types, p.path_overrides,
        p.enabled, p.created_at, p.updated_at,
@@ -312,14 +313,14 @@ func (s *Store) CreateProvider(ctx context.Context, in ProviderInput) (Provider,
 	proxyLast4 := suffix4(in.ProxyPassword)
 	var id string
 	err = s.pool.QueryRow(ctx, `
-INSERT INTO providers (name, description, base_url, auth_type, api_key_ciphertext, api_key_last4, headers,
+INSERT INTO providers (slug, name, description, base_url, auth_type, api_key_ciphertext, api_key_last4, headers,
 health_check_url, health_check_method, timeout_ms, api_types, path_overrides, enabled,
 retry_count, retry_backoff, retry_initial_ms, retry_max_ms, retry_linear_interval_ms,
 proxy_type, proxy_url, proxy_username, proxy_password_ciphertext, proxy_password_last4,
 health_check_headers, health_check_body, health_check_interval_ms, health_check_timeout_ms)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
 RETURNING id`,
-		in.Name, in.Description, in.BaseURL, normalizeAuthType(in.AuthType), enc, last4,
+		normalizeSlug(in.Slug, in.Name), in.Name, in.Description, in.BaseURL, normalizeAuthType(in.AuthType), enc, last4,
 		marshalHeaders(in.Headers),
 		in.HealthCheckURL, normalizeHealthMethod(in.HealthCheckMethod), normalizeTimeout(in.TimeoutMS),
 		normalizeAPITypesOrEmpty(in.APITypes), marshalHeaders(in.PathOverrides),
@@ -331,7 +332,7 @@ RETURNING id`,
 		marshalHeaders(in.HealthCheckHeaders), in.HealthCheckBody,
 		nonNegative(in.HealthCheckIntervalMS), nonNegative(in.HealthCheckTimeoutMS)).Scan(&id)
 	if err != nil {
-		return Provider{}, err
+		return Provider{}, mapConstraintErr(err, "provider slug")
 	}
 	return s.GetProvider(ctx, id)
 }
@@ -348,20 +349,21 @@ func (s *Store) UpdateProvider(ctx context.Context, id string, in ProviderInput)
 	}
 	proxyLast4 := suffix4(in.ProxyPassword)
 	cmd, err := s.pool.Exec(ctx, `
-UPDATE providers SET name=$2, description=$3, base_url=$4, auth_type=$5,
-api_key_ciphertext=CASE WHEN $6::text='' THEN api_key_ciphertext ELSE $6 END,
-api_key_last4=CASE WHEN $6::text='' THEN api_key_last4 ELSE $7 END,
-headers=$8, health_check_url=$9, health_check_method=$10, timeout_ms=$11,
-api_types=$12, path_overrides=$13, enabled=$14,
-retry_count=$15, retry_backoff=$16, retry_initial_ms=$17, retry_max_ms=$18,
-retry_linear_interval_ms=$19,
-proxy_type=$20, proxy_url=$21, proxy_username=$22,
-proxy_password_ciphertext=CASE WHEN $23::text='' THEN proxy_password_ciphertext ELSE $23 END,
-proxy_password_last4=CASE WHEN $23::text='' THEN proxy_password_last4 ELSE $24 END,
-health_check_headers=$25, health_check_body=$26,
-health_check_interval_ms=$27, health_check_timeout_ms=$28
+UPDATE providers SET slug=$2, name=$3, description=$4, base_url=$5, auth_type=$6,
+api_key_ciphertext=CASE WHEN $7::text='' THEN api_key_ciphertext ELSE $7 END,
+api_key_last4=CASE WHEN $7::text='' THEN api_key_last4 ELSE $8 END,
+headers=$9, health_check_url=$10, health_check_method=$11, timeout_ms=$12,
+api_types=$13, path_overrides=$14, enabled=$15,
+retry_count=$16, retry_backoff=$17, retry_initial_ms=$18, retry_max_ms=$19,
+retry_linear_interval_ms=$20,
+proxy_type=$21, proxy_url=$22, proxy_username=$23,
+proxy_password_ciphertext=CASE WHEN $24::text='' THEN proxy_password_ciphertext ELSE $24 END,
+proxy_password_last4=CASE WHEN $24::text='' THEN proxy_password_last4 ELSE $25 END,
+health_check_headers=$26, health_check_body=$27,
+health_check_interval_ms=$28, health_check_timeout_ms=$29
 WHERE id=$1`,
-		id, in.Name, in.Description, in.BaseURL, normalizeAuthType(in.AuthType), enc, last4,
+		id, normalizeSlug(in.Slug, in.Name), in.Name, in.Description, in.BaseURL,
+		normalizeAuthType(in.AuthType), enc, last4,
 		marshalHeaders(in.Headers), in.HealthCheckURL, normalizeHealthMethod(in.HealthCheckMethod),
 		normalizeTimeout(in.TimeoutMS), normalizeAPITypesOrEmpty(in.APITypes),
 		marshalHeaders(in.PathOverrides), boolOr(in.Enabled, true),
@@ -372,7 +374,7 @@ WHERE id=$1`,
 		marshalHeaders(in.HealthCheckHeaders), in.HealthCheckBody,
 		nonNegative(in.HealthCheckIntervalMS), nonNegative(in.HealthCheckTimeoutMS))
 	if err != nil {
-		return Provider{}, err
+		return Provider{}, mapConstraintErr(err, "provider slug")
 	}
 	if cmd.RowsAffected() == 0 {
 		return Provider{}, ErrNotFound
@@ -389,6 +391,39 @@ func (s *Store) DeleteProvider(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// mapConstraintErr turns a unique-violation into ErrConflict so the API can
+// answer 409 instead of leaking the database error.
+func mapConstraintErr(err error, label string) error {
+	if strings.Contains(err.Error(), "duplicate key") {
+		return fmt.Errorf("%w: %s already exists", ErrConflict, label)
+	}
+	return err
+}
+
+// normalizeSlug returns a URL/display friendly identifier, falling back to a
+// slugified name when the caller left it blank.
+func normalizeSlug(slug, name string) string {
+	candidate := strings.TrimSpace(slug)
+	if candidate == "" {
+		var b strings.Builder
+		for _, r := range strings.ToLower(strings.TrimSpace(name)) {
+			switch {
+			case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+				b.WriteRune(r)
+			case r == ' ' || r == '-' || r == '_' || r == '.':
+				if b.Len() > 0 && !strings.HasSuffix(b.String(), "-") {
+					b.WriteByte('-')
+				}
+			}
+		}
+		candidate = strings.Trim(b.String(), "-")
+	}
+	if len(candidate) > 64 {
+		candidate = candidate[:64]
+	}
+	return candidate
 }
 
 func normalizeAuthType(v string) string {

@@ -347,8 +347,46 @@ func isRetryableStatus(status int) bool {
 	return status >= 500
 }
 
+// calculateCost prices a request against the model's effective tier. Prompt
+// tokens are split into fresh input, cache reads and cache writes so each can
+// be billed at its own rate.
 func calculateCost(target store.RuntimeTarget, usage translate.Usage) float64 {
-	return float64(usage.PromptTokens)/1e6*target.InputPrice + float64(usage.CompletionTokens)/1e6*target.OutputPrice
+	if target.Cost.Currency == "" {
+		return 0
+	}
+	price := effectiveCostTier(target.Cost, usage.PromptTokens)
+	cached := minInt(usage.CacheReadTokens, usage.PromptTokens)
+	cacheRead := float64(cached)
+	cacheWrite := float64(minInt(usage.CacheWriteTokens, usage.PromptTokens-cached))
+	freshInput := float64(usage.PromptTokens) - cacheRead - cacheWrite
+	if freshInput < 0 {
+		freshInput = 0
+	}
+	return (freshInput*price.Input +
+		float64(usage.CompletionTokens)*price.Output +
+		cacheRead*price.CacheRead +
+		cacheWrite*price.CacheWrite) / 1e6
+}
+
+// effectiveCostTier picks the tier whose threshold the request exceeded.
+func effectiveCostTier(cost store.ModelCost, inputTokens int) store.CostTier {
+	chosen := store.CostTier{
+		Input: cost.Input, Output: cost.Output,
+		CacheRead: cost.CacheRead, CacheWrite: cost.CacheWrite,
+	}
+	for _, tier := range cost.Tiers {
+		if inputTokens > tier.InputTokensAbove {
+			chosen = tier
+		}
+	}
+	return chosen
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (a *App) authenticateAPIKey(r *http.Request) (store.APIKey, error) {

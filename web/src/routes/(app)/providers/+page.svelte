@@ -19,6 +19,7 @@
   import EyeOffIcon from '@lucide/svelte/icons/eye-off';
   import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
   import LayersIcon from '@lucide/svelte/icons/layers';
+  import BoxIcon from '@lucide/svelte/icons/box';
 
   import * as Card from '$lib/components/ui/card/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -41,6 +42,7 @@
   import StatusBadge from '$lib/components/app/status-badge.svelte';
   import ConfirmDialog from '$lib/components/app/confirm-dialog.svelte';
   import HeaderRows from '$lib/components/app/header-rows.svelte';
+  import ProviderModels from '$lib/components/app/provider-models.svelte';
 
   import {
     API_FORMATS,
@@ -66,6 +68,7 @@
   ];
   const TABS = [
     { value: 'basic', label: '基础', icon: ServerIcon },
+    { value: 'models', label: '模型', icon: BoxIcon },
     { value: 'request', label: '请求', icon: RepeatIcon },
     { value: 'proxy', label: '代理', icon: GlobeIcon },
     { value: 'health', label: '健康检查', icon: ActivityIcon }
@@ -86,6 +89,8 @@
   let showApiKey = $state(false);
   let showProxyPassword = $state(false);
 
+  let providerModels = $state([]);
+
   let createOpen = $state(false);
   let createName = $state('');
   let deleteTarget = $state(null);
@@ -101,6 +106,7 @@
       if (!q) return true;
       return (
         p.name.toLowerCase().includes(q) ||
+        (p.slug || '').toLowerCase().includes(q) ||
         (p.description || '').toLowerCase().includes(q) ||
         (p.base_url || '').toLowerCase().includes(q)
       );
@@ -110,6 +116,7 @@
 
   function applyProvider(provider) {
     selectedId = provider.id;
+    providerModels = [];
     form = providerToForm(provider);
     headerRows = mapToRows(provider.headers);
     healthHeaderRows = mapToRows(provider.health_check_headers);
@@ -311,17 +318,19 @@
                       : 'bg-muted-foreground/40'}"
                   ></span>
                   <span class="min-w-0 flex-1 truncate text-xs font-medium">{provider.name}</span>
+                  {#if provider.slug}
+                    <span class="shrink-0 font-mono text-[10px] text-muted-foreground">
+                      {provider.slug}
+                    </span>
+                  {/if}
                   {#if provider.healthy_targets !== provider.total_targets}
                     <StatusBadge tone="warning" class="shrink-0 px-1 text-[9px]">
                       {provider.healthy_targets}/{provider.total_targets}
                     </StatusBadge>
                   {/if}
                 </div>
-                <div class="mt-0.5 truncate pl-3 font-mono text-[10px] text-muted-foreground">
-                  {provider.base_url}
-                </div>
                 {#if provider.description}
-                  <div class="mt-0.5 truncate pl-3 text-[10px] text-muted-foreground">
+                  <div class="mt-0.5 truncate pl-3 text-[10px] leading-tight text-muted-foreground/80">
                     {provider.description}
                   </div>
                 {/if}
@@ -418,6 +427,15 @@
                 <Input id="p-name" bind:value={form.name} placeholder="deepseek-official" />
               </div>
               <div class="grid gap-1.5">
+                <Label for="p-slug">ID</Label>
+                <Input
+                  id="p-slug"
+                  class="font-mono"
+                  bind:value={form.slug}
+                  placeholder="留空则由名称自动生成"
+                />
+              </div>
+              <div class="grid gap-1.5 sm:col-span-2">
                 <Label for="p-base">Base URL</Label>
                 <Input id="p-base" bind:value={form.base_url} placeholder="https://api.example.com" />
               </div>
@@ -508,6 +526,17 @@
                 {/each}
               </div>
             </div>
+          </Tabs.Content>
+
+          <!-- ---------------------------------------------------- 模型 -->
+          <Tabs.Content value="models">
+            {#if selected}
+              <ProviderModels
+                providerId={selected.id}
+                providerName={selected.name}
+                bind:models={providerModels}
+              />
+            {/if}
           </Tabs.Content>
 
           <!-- ---------------------------------------------------- 请求 -->

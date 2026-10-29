@@ -40,6 +40,9 @@ func parseChatResponse(body []byte) (Response, error) {
 			CompletionTokens: intValue(usage["completion_tokens"]),
 			TotalTokens:      intValue(usage["total_tokens"]),
 		}
+		if details, ok := usage["prompt_tokens_details"].(map[string]any); ok {
+			out.Usage.CacheReadTokens = intValue(details["cached_tokens"])
+		}
 	}
 	choices, _ := m["choices"].([]any)
 	if len(choices) == 0 {
@@ -83,6 +86,8 @@ func parseResponsesResponse(body []byte) (Response, error) {
 			CompletionTokens: intValue(usage["output_tokens"]),
 			TotalTokens:      intValue(usage["total_tokens"]),
 		}
+		out.Usage.CacheReadTokens = intValue(usage["cache_read_input_tokens"])
+		out.Usage.CacheWriteTokens = intValue(usage["cache_creation_input_tokens"])
 	}
 	if status := stringValue(m["status"]); status == "incomplete" {
 		out.FinishReason = "length"
@@ -134,6 +139,8 @@ func parseMessagesResponse(body []byte) (Response, error) {
 			CompletionTokens: intValue(usage["output_tokens"]),
 		}
 		out.Usage.TotalTokens = out.Usage.PromptTokens + out.Usage.CompletionTokens
+		out.Usage.CacheReadTokens = intValue(usage["cache_read_input_tokens"])
+		out.Usage.CacheWriteTokens = intValue(usage["cache_creation_input_tokens"])
 	}
 	if content, ok := m["content"].([]any); ok {
 		for _, raw := range content {

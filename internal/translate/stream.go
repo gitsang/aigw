@@ -223,6 +223,8 @@ func (c *StreamConverter) feedMessages(eventName, data string) ([]sse.Event, err
 				if v := intValue(usage["output_tokens"]); v > 0 {
 					c.usage.CompletionTokens = v
 				}
+				c.usage.CacheReadTokens = intValue(usage["cache_read_input_tokens"])
+				c.usage.CacheWriteTokens = intValue(usage["cache_creation_input_tokens"])
 			}
 		}
 	case "content_block_start":
