@@ -33,7 +33,6 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Get("/session", h.session)
 		r.Get("/stats", h.stats)
 		r.Get("/logs", h.logs)
-		r.Post("/health/check", h.healthCheck)
 		r.Route("/providers", func(r chi.Router) {
 			r.Get("/", h.listProviders)
 			r.Post("/", h.createProvider)
@@ -178,13 +177,6 @@ func validateProviderInput(in store.ProviderInput) string {
 	}
 	if in.RetryInitialMS < 0 || in.RetryMaxMS < 0 || in.RetryLinearIntervalMS < 0 {
 		return "retry delays must not be negative"
-	}
-	if in.HealthCheckIntervalMS < 0 || in.HealthCheckTimeoutMS < 0 {
-		return "health check interval and timeout must not be negative"
-	}
-	if strings.EqualFold(in.HealthCheckMethod, "GET") &&
-		strings.TrimSpace(in.HealthCheckBody) != "" {
-		return "health_check_body cannot be used with the GET method"
 	}
 	return ""
 }
@@ -365,11 +357,6 @@ func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, stats)
-}
-
-func (h *Handler) healthCheck(w http.ResponseWriter, r *http.Request) {
-	// The background prober runs every minute. This endpoint only reports that.
-	writeJSON(w, http.StatusAccepted, map[string]any{"message": "health checks run in the background every minute"})
 }
 
 func (h *Handler) listProviderModels(w http.ResponseWriter, r *http.Request) {

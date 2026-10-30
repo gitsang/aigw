@@ -50,82 +50,19 @@ func New(store *store.Store, interval, timeout time.Duration, concurrency int, l
 	}
 }
 
-// Run performs an immediate check, then repeats on a schedule. Providers may
-// override the cadence, so instead of one global ticker the loop wakes up
-// frequently and probes whatever is due.
+// Run performs an immediate check, then repeats on the configured interval.
 func (p *Prober) Run(ctx context.Context) {
-	p.tick(ctx)
-	// Wake often enough to honour short per-provider intervals while keeping
-	// the default cadence cheap.
-	wake := p.interval
-	if wake > 5*time.Second {
-		wake = 5 * time.Second
-	}
-	ticker := time.NewTicker(wake)
+	p.CheckOnce(ctx)
+	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
-	nextDue := make(map[string]time.Time)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			nextDue = p.tickDue(ctx, nextDue)
+			p.CheckOnce(ctx)
 		}
 	}
-}
-
-// tick probes every target and records when each provider is next due.
-func (p *Prober) tick(ctx context.Context) {
-	p.CheckOnce(ctx)
-}
-
-// tickDue probes the targets whose provider interval has elapsed.
-func (p *Prober) tickDue(ctx context.Context, nextDue map[string]time.Time) map[string]time.Time {
-	targets, err := p.store.ListHealthProbeTargets(ctx)
-	if err != nil {
-		p.logf("health: list targets: %v", err)
-		return nextDue
-	}
-	now := time.Now()
-	due := make([]store.HealthProbeTarget, 0, len(targets))
-	for _, target := range targets {
-		when, ok := nextDue[target.ProviderID]
-		if !ok || !now.Before(when) {
-			due = append(due, target)
-			nextDue[target.ProviderID] = now.Add(p.intervalFor(target))
-		}
-	}
-	// Drop providers that no longer have targets.
-	live := make(map[string]bool, len(targets))
-	for _, target := range targets {
-		live[target.ProviderID] = true
-	}
-	for id := range nextDue {
-		if !live[id] {
-			delete(nextDue, id)
-		}
-	}
-	if len(due) == 0 {
-		return nextDue
-	}
-	p.probeAll(ctx, due)
-	return nextDue
-}
-
-// intervalFor returns the probe cadence for a target's provider.
-func (p *Prober) intervalFor(t store.HealthProbeTarget) time.Duration {
-	if t.HealthCheckIntervalMS > 0 {
-		return time.Duration(t.HealthCheckIntervalMS) * time.Millisecond
-	}
-	return p.interval
-}
-
-// timeoutFor returns the probe timeout for a target's provider.
-func (p *Prober) timeoutFor(t store.HealthProbeTarget) time.Duration {
-	if t.HealthCheckTimeoutMS > 0 {
-		return time.Duration(t.HealthCheckTimeoutMS) * time.Millisecond
-	}
-	return p.timeout
 }
 
 type probeResult struct {
@@ -179,33 +116,19 @@ func (p *Prober) probeAll(ctx context.Context, targets []store.HealthProbeTarget
 }
 
 func (p *Prober) probe(ctx context.Context, t store.HealthProbeTarget) probeResult {
-	ctx, cancel := context.WithTimeout(ctx, p.timeoutFor(t))
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 	result := probeResult{targetID: t.TargetID}
 	start := time.Now()
 
-	path := t.UpstreamPath
-	if t.HealthCheckURL != "" {
-		path = t.HealthCheckURL
-	}
-	endpoint, err := upstream.BuildURL(t.BaseURL, path)
+	endpoint, err := upstream.BuildURL(t.BaseURL, t.UpstreamPath)
 	if err != nil {
 		result.errText = err.Error()
 		result.latencyMS = int(time.Since(start).Milliseconds())
 		return result
 	}
-	method := t.HealthCheckMethod
-	if method == "" {
-		method = http.MethodPost
-	}
-	var body io.Reader
-	if custom := strings.TrimSpace(t.HealthCheckBody); custom != "" {
-		body = bytes.NewReader([]byte(custom))
-	} else if method == http.MethodPost {
-		payload, _ := json.Marshal(probeBody(t))
-		body = bytes.NewReader(payload)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, body)
+	payload, _ := json.Marshal(probeBody(t))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		result.errText = err.Error()
 		result.latencyMS = int(time.Since(start).Milliseconds())
@@ -216,9 +139,6 @@ func (p *Prober) probe(ctx context.Context, t store.HealthProbeTarget) probeResu
 		AuthType: t.AuthType, APIKey: t.APIKey, APIType: t.APIType,
 	})
 	for k, v := range t.Headers {
-		req.Header.Set(k, v)
-	}
-	for k, v := range t.HealthCheckHeaders {
 		req.Header.Set(k, v)
 	}
 	client := p.client

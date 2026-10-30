@@ -27,21 +27,19 @@ const (
 )
 
 type Provider struct {
-	ID                string            `json:"id"`
-	Slug              string            `json:"slug"`
-	Name              string            `json:"name"`
-	Description       string            `json:"description"`
-	BaseURL           string            `json:"base_url"`
-	AuthType          string            `json:"auth_type"`
-	APIKeyLast4       string            `json:"api_key_last4"`
-	HasAPIKey         bool              `json:"has_api_key"`
-	Headers           map[string]string `json:"headers"`
-	HealthCheckURL    string            `json:"health_check_url"`
-	HealthCheckMethod string            `json:"health_check_method"`
-	TimeoutMS         int               `json:"timeout_ms"`
-	APITypes          []string          `json:"api_types"`
-	PathOverrides     map[string]string `json:"path_overrides"`
-	Enabled           bool              `json:"enabled"`
+	ID            string            `json:"id"`
+	Slug          string            `json:"slug"`
+	Name          string            `json:"name"`
+	Description   string            `json:"description"`
+	BaseURL       string            `json:"base_url"`
+	AuthType      string            `json:"auth_type"`
+	APIKeyLast4   string            `json:"api_key_last4"`
+	HasAPIKey     bool              `json:"has_api_key"`
+	Headers       map[string]string `json:"headers"`
+	TimeoutMS     int               `json:"timeout_ms"`
+	APITypes      []string          `json:"api_types"`
+	PathOverrides map[string]string `json:"path_overrides"`
+	Enabled       bool              `json:"enabled"`
 
 	// Per-provider request retry. RetryCount of 0 leaves the routing rule as the
 	// only retry layer.
@@ -58,32 +56,22 @@ type Provider struct {
 	HasProxyPassword   bool   `json:"has_proxy_password"`
 	ProxyPasswordLast4 string `json:"proxy_password_last4"`
 
-	// Health check overrides. An interval or timeout of 0 uses the global config.
-	HealthCheckHeaders    map[string]string `json:"health_check_headers"`
-	HealthCheckBody       string            `json:"health_check_body"`
-	HealthCheckIntervalMS int               `json:"health_check_interval_ms"`
-	HealthCheckTimeoutMS  int               `json:"health_check_timeout_ms"`
-
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	HealthyTargets int       `json:"healthy_targets,omitempty"`
-	TotalTargets   int       `json:"total_targets,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type ProviderInput struct {
-	Slug              string            `json:"slug"`
-	Name              string            `json:"name"`
-	Description       string            `json:"description"`
-	BaseURL           string            `json:"base_url"`
-	AuthType          string            `json:"auth_type"`
-	APIKey            string            `json:"api_key"`
-	Headers           map[string]string `json:"headers"`
-	HealthCheckURL    string            `json:"health_check_url"`
-	HealthCheckMethod string            `json:"health_check_method"`
-	TimeoutMS         int               `json:"timeout_ms"`
-	APITypes          []string          `json:"api_types"`
-	PathOverrides     map[string]string `json:"path_overrides"`
-	Enabled           *bool             `json:"enabled"`
+	Slug          string            `json:"slug"`
+	Name          string            `json:"name"`
+	Description   string            `json:"description"`
+	BaseURL       string            `json:"base_url"`
+	AuthType      string            `json:"auth_type"`
+	APIKey        string            `json:"api_key"`
+	Headers       map[string]string `json:"headers"`
+	TimeoutMS     int               `json:"timeout_ms"`
+	APITypes      []string          `json:"api_types"`
+	PathOverrides map[string]string `json:"path_overrides"`
+	Enabled       *bool             `json:"enabled"`
 
 	RetryCount            int    `json:"retry_count"`
 	RetryBackoff          string `json:"retry_backoff"`
@@ -95,11 +83,6 @@ type ProviderInput struct {
 	ProxyURL      string `json:"proxy_url"`
 	ProxyUsername string `json:"proxy_username"`
 	ProxyPassword string `json:"proxy_password"`
-
-	HealthCheckHeaders    map[string]string `json:"health_check_headers"`
-	HealthCheckBody       string            `json:"health_check_body"`
-	HealthCheckIntervalMS int               `json:"health_check_interval_ms"`
-	HealthCheckTimeoutMS  int               `json:"health_check_timeout_ms"`
 }
 
 type RouteTarget struct {

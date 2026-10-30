@@ -36,12 +36,6 @@ export function blankProvider() {
     proxy_url: '',
     proxy_username: '',
     proxy_password: '',
-    health_check_url: '',
-    health_check_method: 'POST',
-    health_check_headers: {},
-    health_check_body: '',
-    health_check_interval_ms: 0,
-    health_check_timeout_ms: 0,
     enabled: true
   };
 }
@@ -64,12 +58,6 @@ export function providerToForm(provider) {
   form.proxy_type = provider.proxy_type || 'none';
   form.proxy_url = provider.proxy_url || '';
   form.proxy_username = provider.proxy_username || '';
-  form.health_check_url = provider.health_check_url || '';
-  form.health_check_method = provider.health_check_method || 'POST';
-  form.health_check_headers = { ...(provider.health_check_headers || {}) };
-  form.health_check_body = provider.health_check_body || '';
-  form.health_check_interval_ms = provider.health_check_interval_ms ?? 0;
-  form.health_check_timeout_ms = provider.health_check_timeout_ms ?? 0;
   form.enabled = provider.enabled;
   // Rehydrate configured API formats; a provider without an explicit list keeps
   // every protocol enabled with the built-in default path.
@@ -116,12 +104,6 @@ export function formToPayload(form) {
     proxy_username:
       form.proxy_type && form.proxy_type !== 'none' ? (form.proxy_username || '').trim() : '',
     proxy_password: form.proxy_password || '',
-    health_check_url: (form.health_check_url || '').trim(),
-    health_check_method: form.health_check_method || 'POST',
-    health_check_headers: form.health_check_headers || {},
-    health_check_body: form.health_check_body || '',
-    health_check_interval_ms: Number(form.health_check_interval_ms) || 0,
-    health_check_timeout_ms: Number(form.health_check_timeout_ms) || 0,
     api_types: apiTypes,
     path_overrides: pathOverrides,
     enabled: form.enabled
@@ -155,18 +137,12 @@ export function validateProvider(form) {
   if (form.retry_backoff === 'exponential' && form.retry_max_ms < form.retry_initial_ms) {
     errors.push({ tab: 'request', message: '最大退避不能小于基础退避' });
   }
-  if (form.health_check_method === 'GET' && (form.health_check_body || '').trim()) {
-    errors.push({ tab: 'health', message: 'GET 方法不支持请求 Body' });
-  }
-  if (form.health_check_interval_ms < 0 || form.health_check_timeout_ms < 0) {
-    errors.push({ tab: 'health', message: '请求间隔与超时不能为负数' });
-  }
   return errors;
 }
 
 /** Snapshot of editable state, used for dirty tracking. */
-export function formSignature(form, headerRows, healthHeaderRows) {
-  return JSON.stringify({ form, headerRows, healthHeaderRows });
+export function formSignature(form, headerRows) {
+  return JSON.stringify({ form, headerRows });
 }
 
 /** Convert a header map into editable rows. */

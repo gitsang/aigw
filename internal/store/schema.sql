@@ -6,8 +6,6 @@ CREATE TABLE IF NOT EXISTS providers (
     api_key_ciphertext TEXT NOT NULL DEFAULT '',
     api_key_last4 TEXT NOT NULL DEFAULT '',
     headers JSONB NOT NULL DEFAULT '{}'::jsonb,
-    health_check_url TEXT NOT NULL DEFAULT '',
-    health_check_method TEXT NOT NULL DEFAULT 'POST',
     timeout_ms INTEGER NOT NULL DEFAULT 120000 CHECK (timeout_ms > 0),
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     api_types TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
@@ -175,13 +173,14 @@ ALTER TABLE providers ADD COLUMN IF NOT EXISTS proxy_username TEXT NOT NULL DEFA
 ALTER TABLE providers ADD COLUMN IF NOT EXISTS proxy_password_ciphertext TEXT NOT NULL DEFAULT '';
 ALTER TABLE providers ADD COLUMN IF NOT EXISTS proxy_password_last4 TEXT NOT NULL DEFAULT '';
 
--- Health check overrides. Interval/timeout of 0 fall back to the global config.
-ALTER TABLE providers ADD COLUMN IF NOT EXISTS health_check_headers JSONB NOT NULL DEFAULT '{}'::jsonb;
-ALTER TABLE providers ADD COLUMN IF NOT EXISTS health_check_body TEXT NOT NULL DEFAULT '';
-ALTER TABLE providers ADD COLUMN IF NOT EXISTS health_check_interval_ms INTEGER NOT NULL DEFAULT 0
-    CHECK (health_check_interval_ms >= 0);
-ALTER TABLE providers ADD COLUMN IF NOT EXISTS health_check_timeout_ms INTEGER NOT NULL DEFAULT 0
-    CHECK (health_check_timeout_ms >= 0);
+-- Provider-level health check overrides were removed; probes share the global
+-- health.interval / health.timeout schedule.
+ALTER TABLE providers DROP COLUMN IF EXISTS health_check_url;
+ALTER TABLE providers DROP COLUMN IF EXISTS health_check_method;
+ALTER TABLE providers DROP COLUMN IF EXISTS health_check_headers;
+ALTER TABLE providers DROP COLUMN IF EXISTS health_check_body;
+ALTER TABLE providers DROP COLUMN IF EXISTS health_check_interval_ms;
+ALTER TABLE providers DROP COLUMN IF EXISTS health_check_timeout_ms;
 
 -- ------------------------------------------------- provider slug + model costs
 -- Short human-readable identifier shown next to the provider name. Backfilled

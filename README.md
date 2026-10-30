@@ -193,8 +193,7 @@ Resolution rules for an inbound request:
   configured order** is used and the request/response/stream is translated.
 - Path precedence: model path override > provider path override > built-in
   default. Routing targets no longer carry a path field.
-- Health probes use the same resolved protocol/path (or the provider-level
-  `health_check_url` override when set).
+- Health probes use the same resolved protocol/path.
 
 Example: a rule accepts all three entry APIs and a target lists
 `Responses, Chat Completions`.

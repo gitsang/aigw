@@ -90,24 +90,17 @@ func (r RetryPolicy) Delay(retry int) time.Duration {
 }
 
 type HealthProbeTarget struct {
-	TargetID              string
-	ProviderID            string
-	ProviderName          string
-	BaseURL               string
-	AuthType              string
-	APIKey                string
-	Headers               map[string]string
-	HealthCheckURL        string
-	HealthCheckMethod     string
-	RequestTimeoutMS      int
-	HealthCheckHeaders    map[string]string
-	HealthCheckBody       string
-	HealthCheckIntervalMS int
-	HealthCheckTimeoutMS  int
-	Proxy                 ProxySettings
-	UpstreamModel         string
-	APIType               string
-	UpstreamPath          string
+	TargetID      string
+	ProviderID    string
+	ProviderName  string
+	BaseURL       string
+	AuthType      string
+	APIKey        string
+	Headers       map[string]string
+	Proxy         ProxySettings
+	UpstreamModel string
+	APIType       string
+	UpstreamPath  string
 }
 
 // RuntimeTarget is everything needed to perform one upstream request.
@@ -216,21 +209,14 @@ func decodeHeaders(raw []byte) map[string]string {
 func (s *Store) ListProviders(ctx context.Context) ([]Provider, error) {
 	rows, err := s.pool.Query(ctx, `
 SELECT p.id, p.slug, p.name, p.description, p.base_url, p.auth_type, p.api_key_last4,
-       (p.api_key_ciphertext <> ''), p.headers, p.health_check_url, p.health_check_method,
+       (p.api_key_ciphertext <> ''), p.headers,
        p.timeout_ms, p.api_types, p.path_overrides,
        p.enabled, p.created_at, p.updated_at,
-       COUNT(t.id) FILTER (WHERE t.enabled)::int,
-       COUNT(t.id) FILTER (WHERE t.enabled AND COALESCE(h.healthy, TRUE))::int,
        p.retry_count, p.retry_backoff, p.retry_initial_ms, p.retry_max_ms,
        p.retry_linear_interval_ms,
        p.proxy_type, p.proxy_url, p.proxy_username,
-       (p.proxy_password_ciphertext <> ''), p.proxy_password_last4,
-       p.health_check_headers, p.health_check_body,
-       p.health_check_interval_ms, p.health_check_timeout_ms
-FROM providers p
-LEFT JOIN routing_targets t ON t.provider_id = p.id
-LEFT JOIN target_health h ON h.target_id = t.id
-GROUP BY p.id ORDER BY p.created_at ASC`)
+       (p.proxy_password_ciphertext <> ''), p.proxy_password_last4
+FROM providers p ORDER BY p.created_at ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -248,22 +234,19 @@ GROUP BY p.id ORDER BY p.created_at ASC`)
 
 func scanProvider(row rowScanner) (Provider, error) {
 	var p Provider
-	var headers, pathOverrides, healthHeaders []byte
+	var headers, pathOverrides []byte
 	err := row.Scan(&p.ID, &p.Slug, &p.Name, &p.Description, &p.BaseURL, &p.AuthType, &p.APIKeyLast4, &p.HasAPIKey,
-		&headers, &p.HealthCheckURL, &p.HealthCheckMethod, &p.TimeoutMS,
+		&headers, &p.TimeoutMS,
 		&p.APITypes, &pathOverrides,
-		&p.Enabled, &p.CreatedAt, &p.UpdatedAt, &p.TotalTargets, &p.HealthyTargets,
+		&p.Enabled, &p.CreatedAt, &p.UpdatedAt,
 		&p.RetryCount, &p.RetryBackoff, &p.RetryInitialMS, &p.RetryMaxMS,
 		&p.RetryLinearIntervalMS,
 		&p.ProxyType, &p.ProxyURL, &p.ProxyUsername,
-		&p.HasProxyPassword, &p.ProxyPasswordLast4,
-		&healthHeaders, &p.HealthCheckBody,
-		&p.HealthCheckIntervalMS, &p.HealthCheckTimeoutMS)
+		&p.HasProxyPassword, &p.ProxyPasswordLast4)
 	if err != nil {
 		return p, err
 	}
 	p.Headers = decodeHeaders(headers)
-	p.HealthCheckHeaders = decodeHeaders(healthHeaders)
 	p.PathOverrides = map[string]string{}
 	if len(pathOverrides) > 0 {
 		_ = json.Unmarshal(pathOverrides, &p.PathOverrides)
@@ -276,20 +259,14 @@ func scanProvider(row rowScanner) (Provider, error) {
 
 const providerSelect = `
 SELECT p.id, p.slug, p.name, p.description, p.base_url, p.auth_type, p.api_key_last4,
-       (p.api_key_ciphertext <> ''), p.headers, p.health_check_url, p.health_check_method,
+       (p.api_key_ciphertext <> ''), p.headers,
        p.timeout_ms, p.api_types, p.path_overrides,
        p.enabled, p.created_at, p.updated_at,
-       COUNT(t.id) FILTER (WHERE t.enabled)::int,
-       COUNT(t.id) FILTER (WHERE t.enabled AND COALESCE(h.healthy, TRUE))::int,
        p.retry_count, p.retry_backoff, p.retry_initial_ms, p.retry_max_ms,
        p.retry_linear_interval_ms,
        p.proxy_type, p.proxy_url, p.proxy_username,
-       (p.proxy_password_ciphertext <> ''), p.proxy_password_last4,
-       p.health_check_headers, p.health_check_body,
-       p.health_check_interval_ms, p.health_check_timeout_ms
-FROM providers p
-LEFT JOIN routing_targets t ON t.provider_id = p.id
-LEFT JOIN target_health h ON h.target_id = t.id`
+       (p.proxy_password_ciphertext <> ''), p.proxy_password_last4
+FROM providers p`
 
 func (s *Store) GetProvider(ctx context.Context, id string) (Provider, error) {
 	row := s.pool.QueryRow(ctx, providerSelect+` WHERE p.id=$1 GROUP BY p.id`, id)
@@ -314,23 +291,20 @@ func (s *Store) CreateProvider(ctx context.Context, in ProviderInput) (Provider,
 	var id string
 	err = s.pool.QueryRow(ctx, `
 INSERT INTO providers (slug, name, description, base_url, auth_type, api_key_ciphertext, api_key_last4, headers,
-health_check_url, health_check_method, timeout_ms, api_types, path_overrides, enabled,
+timeout_ms, api_types, path_overrides, enabled,
 retry_count, retry_backoff, retry_initial_ms, retry_max_ms, retry_linear_interval_ms,
-proxy_type, proxy_url, proxy_username, proxy_password_ciphertext, proxy_password_last4,
-health_check_headers, health_check_body, health_check_interval_ms, health_check_timeout_ms)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
+proxy_type, proxy_url, proxy_username, proxy_password_ciphertext, proxy_password_last4)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
 RETURNING id`,
 		normalizeSlug(in.Slug, in.Name), in.Name, in.Description, in.BaseURL, normalizeAuthType(in.AuthType), enc, last4,
 		marshalHeaders(in.Headers),
-		in.HealthCheckURL, normalizeHealthMethod(in.HealthCheckMethod), normalizeTimeout(in.TimeoutMS),
+		normalizeTimeout(in.TimeoutMS),
 		normalizeAPITypesOrEmpty(in.APITypes), marshalHeaders(in.PathOverrides),
 		boolOr(in.Enabled, true),
 		normalizeProviderRetryCount(in.RetryCount), normalizeBackoff(in.RetryBackoff),
 		nonNegative(in.RetryInitialMS), nonNegative(in.RetryMaxMS), nonNegative(in.RetryLinearIntervalMS),
 		normalizeProxyType(in.ProxyType), strings.TrimSpace(in.ProxyURL),
-		strings.TrimSpace(in.ProxyUsername), proxyEnc, proxyLast4,
-		marshalHeaders(in.HealthCheckHeaders), in.HealthCheckBody,
-		nonNegative(in.HealthCheckIntervalMS), nonNegative(in.HealthCheckTimeoutMS)).Scan(&id)
+		strings.TrimSpace(in.ProxyUsername), proxyEnc, proxyLast4).Scan(&id)
 	if err != nil {
 		return Provider{}, mapConstraintErr(err, "provider slug")
 	}
@@ -352,27 +326,22 @@ func (s *Store) UpdateProvider(ctx context.Context, id string, in ProviderInput)
 UPDATE providers SET slug=$2, name=$3, description=$4, base_url=$5, auth_type=$6,
 api_key_ciphertext=CASE WHEN $7::text='' THEN api_key_ciphertext ELSE $7 END,
 api_key_last4=CASE WHEN $7::text='' THEN api_key_last4 ELSE $8 END,
-headers=$9, health_check_url=$10, health_check_method=$11, timeout_ms=$12,
-api_types=$13, path_overrides=$14, enabled=$15,
-retry_count=$16, retry_backoff=$17, retry_initial_ms=$18, retry_max_ms=$19,
-retry_linear_interval_ms=$20,
-proxy_type=$21, proxy_url=$22, proxy_username=$23,
-proxy_password_ciphertext=CASE WHEN $24::text='' THEN proxy_password_ciphertext ELSE $24 END,
-proxy_password_last4=CASE WHEN $24::text='' THEN proxy_password_last4 ELSE $25 END,
-health_check_headers=$26, health_check_body=$27,
-health_check_interval_ms=$28, health_check_timeout_ms=$29
+headers=$9, timeout_ms=$10, api_types=$11, path_overrides=$12, enabled=$13,
+retry_count=$14, retry_backoff=$15, retry_initial_ms=$16, retry_max_ms=$17,
+retry_linear_interval_ms=$18,
+proxy_type=$19, proxy_url=$20, proxy_username=$21,
+proxy_password_ciphertext=CASE WHEN $22::text='' THEN proxy_password_ciphertext ELSE $22 END,
+proxy_password_last4=CASE WHEN $22::text='' THEN proxy_password_last4 ELSE $23 END
 WHERE id=$1`,
 		id, normalizeSlug(in.Slug, in.Name), in.Name, in.Description, in.BaseURL,
 		normalizeAuthType(in.AuthType), enc, last4,
-		marshalHeaders(in.Headers), in.HealthCheckURL, normalizeHealthMethod(in.HealthCheckMethod),
+		marshalHeaders(in.Headers),
 		normalizeTimeout(in.TimeoutMS), normalizeAPITypesOrEmpty(in.APITypes),
 		marshalHeaders(in.PathOverrides), boolOr(in.Enabled, true),
 		normalizeProviderRetryCount(in.RetryCount), normalizeBackoff(in.RetryBackoff),
 		nonNegative(in.RetryInitialMS), nonNegative(in.RetryMaxMS), nonNegative(in.RetryLinearIntervalMS),
 		normalizeProxyType(in.ProxyType), strings.TrimSpace(in.ProxyURL),
-		strings.TrimSpace(in.ProxyUsername), proxyEnc, proxyLast4,
-		marshalHeaders(in.HealthCheckHeaders), in.HealthCheckBody,
-		nonNegative(in.HealthCheckIntervalMS), nonNegative(in.HealthCheckTimeoutMS))
+		strings.TrimSpace(in.ProxyUsername), proxyEnc, proxyLast4)
 	if err != nil {
 		return Provider{}, mapConstraintErr(err, "provider slug")
 	}
@@ -433,13 +402,6 @@ func normalizeAuthType(v string) string {
 	default:
 		return "bearer"
 	}
-}
-
-func normalizeHealthMethod(v string) string {
-	if strings.EqualFold(v, "GET") {
-		return "GET"
-	}
-	return "POST"
 }
 
 func normalizeTimeout(v int) int {
@@ -805,12 +767,10 @@ func normalizeDelay(v, fallback int) int {
 func (s *Store) ListHealthProbeTargets(ctx context.Context) ([]HealthProbeTarget, error) {
 	rows, err := s.pool.Query(ctx, `
 SELECT t.id, p.id, p.name, p.base_url, p.auth_type, p.api_key_ciphertext, p.headers,
-       p.health_check_url, p.health_check_method, p.timeout_ms, t.upstream_model,
+       t.upstream_model,
        t.api_types, p.api_types, p.path_overrides,
        COALESCE(pm.model_id,''), COALESCE(pm.api_types,'{}'::text[]),
        COALESCE(pm.path_overrides,'{}'::jsonb),
-       p.health_check_headers, p.health_check_body,
-       p.health_check_interval_ms, p.health_check_timeout_ms,
        p.proxy_type, p.proxy_url, p.proxy_username, p.proxy_password_ciphertext
 FROM routing_targets t
 JOIN providers p ON p.id=t.provider_id
@@ -830,13 +790,11 @@ WHERE t.enabled=TRUE AND p.enabled=TRUE AND (t.provider_model_id IS NULL OR pm.e
 		var modelID string
 		var modelTypes []string
 		var modelOverridesRaw []byte
-		var healthHeaders []byte
 		var proxyCT string
 		if err := rows.Scan(&t.TargetID, &t.ProviderID, &t.ProviderName, &t.BaseURL, &t.AuthType,
-			&ct, &headers, &t.HealthCheckURL, &t.HealthCheckMethod, &t.RequestTimeoutMS,
+			&ct, &headers,
 			&t.UpstreamModel, &targetTypes, &providerTypes, &providerOverridesRaw,
 			&modelID, &modelTypes, &modelOverridesRaw,
-			&healthHeaders, &t.HealthCheckBody, &t.HealthCheckIntervalMS, &t.HealthCheckTimeoutMS,
 			&t.Proxy.Type, &t.Proxy.URL, &t.Proxy.Username, &proxyCT); err != nil {
 			return nil, err
 		}
@@ -847,7 +805,6 @@ WHERE t.enabled=TRUE AND p.enabled=TRUE AND (t.provider_model_id IS NULL OR pm.e
 			t.Proxy.Password, _ = s.cipher.Decrypt(proxyCT)
 		}
 		t.Headers = decodeHeaders(headers)
-		t.HealthCheckHeaders = decodeHeaders(healthHeaders)
 		providerOverrides := map[string]string{}
 		if len(providerOverridesRaw) > 0 {
 			_ = json.Unmarshal(providerOverridesRaw, &providerOverrides)

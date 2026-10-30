@@ -12,9 +12,7 @@
   import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
   import GlobeIcon from '@lucide/svelte/icons/globe';
   import RepeatIcon from '@lucide/svelte/icons/repeat';
-  import ActivityIcon from '@lucide/svelte/icons/activity';
   import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-  import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
   import EyeIcon from '@lucide/svelte/icons/eye';
   import EyeOffIcon from '@lucide/svelte/icons/eye-off';
   import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
@@ -25,7 +23,6 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
-  import { Textarea } from '$lib/components/ui/textarea/index.js';
   import { Switch } from '$lib/components/ui/switch/index.js';
   import { Checkbox } from '$lib/components/ui/checkbox/index.js';
   import * as Select from '$lib/components/ui/select/index.js';
@@ -68,10 +65,9 @@
   ];
   const TABS = [
     { value: 'basic', label: '基础', icon: ServerIcon },
-    { value: 'models', label: '模型', icon: BoxIcon },
     { value: 'request', label: '请求', icon: RepeatIcon },
     { value: 'proxy', label: '代理', icon: GlobeIcon },
-    { value: 'health', label: '健康检查', icon: ActivityIcon }
+    { value: 'models', label: '模型', icon: BoxIcon }
   ];
 
   let providers = $state([]);
@@ -83,7 +79,6 @@
   let tab = $state('basic');
   let form = $state(blankProvider());
   let headerRows = $state([]);
-  let healthHeaderRows = $state([]);
   let baseline = $state('');
   let saving = $state(false);
   let showApiKey = $state(false);
@@ -98,7 +93,7 @@
 
   const selected = $derived(providers.find((p) => p.id === selectedId) ?? null);
   // Any nested edit (API format toggles, header rows) changes this signature.
-  const signature = $derived(formSignature(form, headerRows, healthHeaderRows));
+  const signature = $derived(formSignature(form, headerRows));
   const dirty = $derived(baseline !== '' && signature !== baseline);
   const edited = $derived(
     providers.filter((p) => {
@@ -119,8 +114,7 @@
     providerModels = [];
     form = providerToForm(provider);
     headerRows = mapToRows(provider.headers);
-    healthHeaderRows = mapToRows(provider.health_check_headers);
-    baseline = formSignature(form, headerRows, healthHeaderRows);
+    baseline = formSignature(form, headerRows);
     showApiKey = false;
     showProxyPassword = false;
   }
@@ -135,7 +129,6 @@
         selectedId = null;
         form = blankProvider();
         headerRows = [];
-        healthHeaderRows = [];
         baseline = '';
         return;
       }
@@ -192,7 +185,6 @@
     try {
       const payload = formToPayload(form);
       payload.headers = rowsToMap(headerRows);
-      payload.health_check_headers = rowsToMap(healthHeaderRows);
       const updated = await api(`/api/admin/providers/${selected.id}`, {
         method: 'PUT',
         body: JSON.stringify(payload)
@@ -237,7 +229,7 @@
 
 <PageHeader
   title="Model Provider"
-  description="管理上游服务、请求策略、出站代理与健康检查。这里的每项配置都会直接影响网关的实时行为。"
+  description="管理上游服务、请求策略、出站代理与模型目录。这里的每项配置都会直接影响网关的实时行为。"
 >
   {#if selected}
     <Button variant="outline" size="sm" onclick={reset} disabled={saving || !dirty}>
@@ -322,11 +314,6 @@
                     <span class="shrink-0 font-mono text-[10px] text-muted-foreground">
                       {provider.slug}
                     </span>
-                  {/if}
-                  {#if provider.healthy_targets !== provider.total_targets}
-                    <StatusBadge tone="warning" class="shrink-0 px-1 text-[9px]">
-                      {provider.healthy_targets}/{provider.total_targets}
-                    </StatusBadge>
                   {/if}
                 </div>
                 {#if provider.description}
@@ -722,104 +709,11 @@
             {/if}
           </Tabs.Content>
 
-          <!-- ---------------------------------------------------- 健康检查 -->
-          <Tabs.Content value="health" class="space-y-4">
-            <div class="grid gap-3 sm:grid-cols-2">
-              <div class="grid gap-1.5">
-                <Label for="p-health-method">Method</Label>
-                <Select.Root type="single" bind:value={form.health_check_method}>
-                  <Select.Trigger class="w-full" id="p-health-method">
-                    <Select.Value placeholder="POST" />
-                  </Select.Trigger>
-                  <Select.Content>
-                    <Select.Item value="POST" label="POST">POST</Select.Item>
-                    <Select.Item value="GET" label="GET">GET</Select.Item>
-                  </Select.Content>
-                </Select.Root>
-              </div>
-              <div class="grid gap-1.5">
-                <Label for="p-health-url">URL</Label>
-                <Input
-                  id="p-health-url"
-                  class="font-mono text-[11px]"
-                  bind:value={form.health_check_url}
-                  placeholder="留空使用模型解析后的 Path"
-                />
-              </div>
-              <div class="grid gap-1.5">
-                <Label for="p-health-interval">请求间隔 (ms)</Label>
-                <Input
-                  id="p-health-interval"
-                  type="number"
-                  min="0"
-                  bind:value={form.health_check_interval_ms}
-                />
-                <p class="text-[10.5px] text-muted-foreground">
-                  {Number(form.health_check_interval_ms) > 0
-                    ? formatDuration(form.health_check_interval_ms)
-                    : '0 = 使用全局 health.interval'}
-                </p>
-              </div>
-              <div class="grid gap-1.5">
-                <Label for="p-health-timeout">请求超时 (ms)</Label>
-                <Input
-                  id="p-health-timeout"
-                  type="number"
-                  min="0"
-                  bind:value={form.health_check_timeout_ms}
-                />
-                <p class="text-[10.5px] text-muted-foreground">
-                  {Number(form.health_check_timeout_ms) > 0
-                    ? formatDuration(form.health_check_timeout_ms)
-                    : '0 = 使用全局 health.timeout'}
-                </p>
-              </div>
-            </div>
 
-            <HeaderRows
-              label="健康检查 Header"
-              description="仅用于健康检查请求，不影响正常业务请求。"
-              bind:rows={healthHeaderRows}
-            />
-
-            <div class="grid gap-1.5">
-              <Label for="p-health-body">请求 Body</Label>
-              <Textarea
-                id="p-health-body"
-                class="min-h-24 font-mono text-[11px]"
-                bind:value={form.health_check_body}
-                placeholder={form.health_check_method === 'GET'
-                  ? 'GET 方法不支持 Body'
-                  : '留空则使用最小探测请求（max_tokens=1）'}
-                disabled={form.health_check_method === 'GET'}
-              ></Textarea>
-              <p class="text-[10.5px] text-muted-foreground">
-                留空时网关发送最小探测请求；填入后按原样发送。2xx 且响应无 error 字段即视为健康。
-              </p>
-            </div>
-
-            {#if !Number(selected.health_check_interval_ms) && !Number(selected.health_check_timeout_ms)}
-              <Alert>
-                <ActivityIcon />
-                <AlertDescription>
-                  当前使用全局健康检查节奏。填写间隔或超时后，该 Provider 会独立调度，不必等待全局周期。
-                </AlertDescription>
-              </Alert>
-            {/if}
-          </Tabs.Content>
         </div>
       </Tabs.Root>
 
-      <Card.Footer class="justify-between border-t">
-        <div class="flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
-          {#if selected.healthy_targets === selected.total_targets}
-            <CircleCheckIcon class="size-3 text-emerald-500" />
-            全部 target 健康 ({selected.healthy_targets}/{selected.total_targets})
-          {:else}
-            <TriangleAlertIcon class="size-3 text-amber-500" />
-            健康 target {selected.healthy_targets}/{selected.total_targets}
-          {/if}
-        </div>
+      <Card.Footer class="justify-end border-t">
         <div class="flex items-center gap-1.5">
           <Button variant="ghost" size="sm" onclick={reset} disabled={saving || !dirty}>还原</Button>
           <Button size="sm" onclick={save} disabled={saving || !dirty}>
