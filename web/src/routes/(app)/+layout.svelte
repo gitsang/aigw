@@ -10,7 +10,6 @@
   import { Separator } from '$lib/components/ui/separator/index.js';
   import { Spinner } from '$lib/components/ui/spinner/index.js';
   import AppSidebar from '$lib/components/app/app-sidebar.svelte';
-  import ApiStatus from '$lib/components/app/api-status.svelte';
   import ThemeToggle from '$lib/components/app/theme-toggle.svelte';
 
   let { children } = $props();
@@ -46,7 +45,6 @@
           </Breadcrumb.List>
         </Breadcrumb.Root>
         <div class="ml-auto flex items-center gap-1">
-          <ApiStatus />
           <ThemeToggle />
         </div>
       </header>

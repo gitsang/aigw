@@ -4,7 +4,6 @@
   import { setToken } from '$lib/api';
   import { navItems } from '$lib/nav.js';
   import * as Sidebar from '$lib/components/ui/sidebar/index.js';
-  import ActivityIcon from '@lucide/svelte/icons/activity';
   import LogOutIcon from '@lucide/svelte/icons/log-out';
 
   const current = $derived(page.url.pathname);
@@ -69,19 +68,6 @@
 
   <Sidebar.Footer class="border-t border-sidebar-border">
     <Sidebar.Menu>
-      <Sidebar.MenuItem>
-        <Sidebar.MenuButton size="sm" tooltipContent="服务健康状态">
-          {#snippet child({ props })}
-            <a href="/healthz" target="_blank" rel="noreferrer" {...props}>
-              <ActivityIcon />
-              <span>服务健康状态</span>
-              <span
-                class="ml-auto size-1.5 shrink-0 rounded-full bg-emerald-500 shadow-[0_0_0_3px] shadow-emerald-500/20"
-              ></span>
-            </a>
-          {/snippet}
-        </Sidebar.MenuButton>
-      </Sidebar.MenuItem>
       <Sidebar.MenuItem>
         <Sidebar.MenuButton size="sm" tooltipContent="退出管理" onclick={logout}>
           <LogOutIcon />
