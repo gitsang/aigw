@@ -34,6 +34,10 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Get("/stats", h.stats)
 		r.Get("/logs", h.logs)
 		r.Get("/models", h.listModels)
+		r.Route("/settings", func(r chi.Router) {
+			r.Get("/", h.getSettings)
+			r.Put("/", h.updateSettings)
+		})
 		r.Route("/providers", func(r chi.Router) {
 			r.Get("/", h.listProviders)
 			r.Post("/", h.createProvider)
@@ -367,6 +371,28 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+func (h *Handler) getSettings(w http.ResponseWriter, r *http.Request) {
+	settings, err := h.store.GetSettings(r.Context())
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, settings)
+}
+
+func (h *Handler) updateSettings(w http.ResponseWriter, r *http.Request) {
+	var in store.Settings
+	if !decode(w, r, &in) {
+		return
+	}
+	settings, err := h.store.UpdateSettings(r.Context(), in)
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, settings)
 }
 
 func (h *Handler) listProviderModels(w http.ResponseWriter, r *http.Request) {

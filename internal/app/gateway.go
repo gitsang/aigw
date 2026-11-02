@@ -91,18 +91,18 @@ func (a *App) Gateway(apiType string) http.HandlerFunc {
 			return
 		}
 
-		rule, err := a.store.GetRoutingRuleByModel(r.Context(), req.Model)
+		rule, autoTarget, err := a.resolveRule(r.Context(), req.Model, apiType)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				writeGatewayError(w, apiType, http.StatusNotFound, "model_not_found",
-					fmt.Sprintf("no routing rule configured for model %q", req.Model))
+					fmt.Sprintf("no routing rule or provider model matched %q", req.Model))
 				return
 			}
 			a.log.Error("load routing rule", "error", err)
 			writeGatewayError(w, apiType, http.StatusInternalServerError, "gateway_error", "failed to load routing rule")
 			return
 		}
-		if !contains(rule.APITypes, apiType) {
+		if autoTarget == nil && !contains(rule.APITypes, apiType) {
 			writeGatewayError(w, apiType, http.StatusBadRequest, "invalid_request_error",
 				fmt.Sprintf("model %q is not configured for API type %s", req.Model, apiType))
 			return
@@ -113,6 +113,9 @@ func (a *App) Gateway(apiType string) http.HandlerFunc {
 
 		state := &attemptState{}
 		result := a.runner.Execute(ctx, rule, func(execCtx context.Context, target store.RouteTarget) router.AttemptOutcome {
+			if autoTarget != nil {
+				return a.attemptResolved(execCtx, req, *autoTarget, state)
+			}
 			return a.attempt(execCtx, req, apiType, target, state)
 		})
 
@@ -191,11 +194,71 @@ func (a *App) Gateway(apiType string) http.HandlerFunc {
 	}
 }
 
+// resolveRule loads the routing rule for a requested model. When no rule
+// matches, the optional auto model matching fallback dispatches the request to
+// the first provider model whose public id contains the requested name.
+//
+// The returned autoTarget is non-nil only for an auto-matched model; in that
+// case the rule is a synthetic single-target rule carrying the same model name.
+func (a *App) resolveRule(ctx context.Context, model, inboundAPIType string) (store.RoutingRule, *store.RuntimeTarget, error) {
+	rule, err := a.store.GetRoutingRuleByModel(ctx, model)
+	if err == nil {
+		return rule, nil, nil
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return store.RoutingRule{}, nil, err
+	}
+	if !a.store.AutoRouteMatchEnabled(ctx) {
+		return store.RoutingRule{}, nil, err
+	}
+	match, err := a.store.MatchProviderModel(ctx, model)
+	if err != nil {
+		return store.RoutingRule{}, nil, err
+	}
+	target, err := a.store.ResolveModelTarget(ctx, match.ProviderModelID, inboundAPIType)
+	if err != nil {
+		return store.RoutingRule{}, nil, err
+	}
+	a.log.Info("auto matched model", "requested", model, "matched", match.ID(),
+		"provider", target.ProviderName)
+	return autoMatchRule(model, target), &target, nil
+}
+
+// autoMatchRouteName labels the request log of an auto-matched dispatch.
+const autoMatchRouteName = "auto-match"
+
+// autoMatchRule wraps a resolved provider model in a single-target routing rule
+// so the existing retry/fallback runner can execute it unchanged.
+func autoMatchRule(model string, target store.RuntimeTarget) store.RoutingRule {
+	return store.RoutingRule{
+		Name:           autoMatchRouteName,
+		VirtualModel:   model,
+		APITypes:       store.DefaultAPITypes(),
+		Enabled:        true,
+		RetryCount:     1,
+		RetryPolicy:    "fixed",
+		FallbackPolicy: "fallback-first",
+		Targets: []store.RouteTarget{{
+			ID:            target.TargetID,
+			Role:          store.RoleLB,
+			ProviderID:    target.ProviderID,
+			ProviderName:  target.ProviderName,
+			UpstreamModel: target.UpstreamModel,
+			Weight:        100,
+			Enabled:       true,
+		}},
+	}
+}
+
 func (a *App) attempt(ctx context.Context, req translate.Request, inboundAPIType string, target store.RouteTarget, state *attemptState) router.AttemptOutcome {
 	runtimeTarget, err := a.store.ResolveTarget(ctx, target.ID, inboundAPIType)
 	if err != nil {
 		return router.AttemptOutcome{Retryable: true, StatusCode: http.StatusBadGateway, Err: fmt.Errorf("load target: %w", err)}
 	}
+	return a.attemptResolved(ctx, req, runtimeTarget, state)
+}
+
+func (a *App) attemptResolved(ctx context.Context, req translate.Request, runtimeTarget store.RuntimeTarget, state *attemptState) router.AttemptOutcome {
 	// Track the attempted provider even if this attempt fails, so the request
 	// log can attribute the failure to a provider.
 	*state = attemptState{target: runtimeTarget}

@@ -3,6 +3,7 @@ import LayersIcon from '@lucide/svelte/icons/layers';
 import BoxesIcon from '@lucide/svelte/icons/boxes';
 import RouteIcon from '@lucide/svelte/icons/route';
 import KeyRoundIcon from '@lucide/svelte/icons/key-round';
+import SettingsIcon from '@lucide/svelte/icons/settings';
 
 /** Console navigation entries, shared by the sidebar and breadcrumb. */
 export const navItems = [
@@ -10,7 +11,8 @@ export const navItems = [
   { href: '/models', label: 'Models', icon: LayersIcon },
   { href: '/providers', label: 'Model Provider', icon: BoxesIcon },
   { href: '/routing', label: 'Routing', icon: RouteIcon },
-  { href: '/keys', label: 'API Keys', icon: KeyRoundIcon }
+  { href: '/keys', label: 'API Keys', icon: KeyRoundIcon },
+  { href: '/settings', label: 'Settings', icon: SettingsIcon }
 ];
 
 /** Resolve the nav entry that matches the current pathname. */

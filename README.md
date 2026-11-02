@@ -23,6 +23,20 @@ checks, retries/fallbacks, and a SvelteKit management console.
   - Explicit `fallback` targets used when all LB targets are unhealthy/failing.
   - Retry policies: `fixed` and `exponential` backoff.
   - Fallback strategies: `fallback-first` and `retry-first`.
+- **Model catalog** — one page listing every model the gateway can serve:
+  - Routing-rule virtual models (served under their `virtual_model` name).
+  - Provider models, exposed as `{providerId}/{modelId}` (provider slug, falling
+    back to the provider name) with `{providerName}/{modelName}` as display name.
+  - Model ids are joined verbatim: a provider model literally named
+    `deepseek/deepseek-flash` under provider `yllm` is exposed as
+    `yllm/deepseek/deepseek-flash`.
+- **Auto model matching** (opt-in, Settings page)
+  - When a request model has no routing rule, the gateway can fall back to the
+    first provider model whose public id *contains* the requested name. A request
+    for `deepseek/deepseek-flash` therefore resolves to
+    `yllm/deepseek/deepseek-flash` when only `yllm` is configured.
+  - The matched model keeps its provider-level protocol, path, retry and proxy
+    settings; the request log labels the route as `auto-match`.
 - **Health checks**
   - Background prober runs every minute (`health.interval`), probe timeout and
     concurrency are configurable.
@@ -45,10 +59,12 @@ checks, retries/fallbacks, and a SvelteKit management console.
     model distribution, per-hour request series, app breakdown.
 - **SvelteKit management console**, built on
   [shadcn-svelte](https://www.shadcn-svelte.com) (Tailwind CSS v4) with pages for:
+  - Models (route + provider model catalog)
   - Model Provider
   - Routing
   - API Keys
   - Logs & statistics
+  - Settings (auto model matching)
   - Light/dark theme, responsive sidebar, toasts and accessible dialogs out of the box.
 
 ## Architecture
@@ -194,6 +210,11 @@ Resolution rules for an inbound request:
 - Path precedence: model path override > provider path override > built-in
   default. Routing targets no longer carry a path field.
 - Health probes use the same resolved protocol/path.
+- Auto model matching (Settings page) resolves a request model that has no
+  routing rule to the first provider model whose `{providerId}/{modelId}` id
+  contains the requested name, case-insensitively; the matched model only
+  contributes its provider settings (protocol list comes from the model/provider
+  and the first matching protocol is used).
 
 Example: a rule accepts all three entry APIs and a target lists
 `Responses, Chat Completions`.
@@ -233,6 +254,9 @@ All admin endpoints require `Authorization: Bearer <admin_token>`:
 | Method | Path | Description |
 | --- | --- | --- |
 | GET | `/api/admin/session` | token check |
+| GET | `/api/admin/models` | list all route and provider models |
+| GET | `/api/admin/settings` | read gateway settings |
+| PUT | `/api/admin/settings` | update gateway settings (auto route match) |
 | GET | `/api/admin/providers` | list providers |
 | POST | `/api/admin/providers` | create provider |
 | PUT | `/api/admin/providers/{id}` | update provider |
