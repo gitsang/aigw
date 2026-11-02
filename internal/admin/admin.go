@@ -33,6 +33,7 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Get("/session", h.session)
 		r.Get("/stats", h.stats)
 		r.Get("/logs", h.logs)
+		r.Get("/models", h.listModels)
 		r.Route("/providers", func(r chi.Router) {
 			r.Get("/", h.listProviders)
 			r.Post("/", h.createProvider)
@@ -357,6 +358,15 @@ func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, stats)
+}
+
+func (h *Handler) listModels(w http.ResponseWriter, r *http.Request) {
+	items, err := h.store.ListModelCatalog(r.Context())
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
 }
 
 func (h *Handler) listProviderModels(w http.ResponseWriter, r *http.Request) {

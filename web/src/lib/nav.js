@@ -1,4 +1,5 @@
 import ChartLineIcon from '@lucide/svelte/icons/chart-line';
+import LayersIcon from '@lucide/svelte/icons/layers';
 import BoxesIcon from '@lucide/svelte/icons/boxes';
 import RouteIcon from '@lucide/svelte/icons/route';
 import KeyRoundIcon from '@lucide/svelte/icons/key-round';
@@ -6,6 +7,7 @@ import KeyRoundIcon from '@lucide/svelte/icons/key-round';
 /** Console navigation entries, shared by the sidebar and breadcrumb. */
 export const navItems = [
   { href: '/logs', label: '日志与统计', icon: ChartLineIcon },
+  { href: '/models', label: 'Models', icon: LayersIcon },
   { href: '/providers', label: 'Model Provider', icon: BoxesIcon },
   { href: '/routing', label: 'Routing', icon: RouteIcon },
   { href: '/keys', label: 'API Keys', icon: KeyRoundIcon }
