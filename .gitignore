@@ -19,6 +19,9 @@ configs/config.yml
 compose.yml
 *.local
 
+# local debate/decision records
+.team-debate/
+
 # editor / OS
 .DS_Store
 .idea/

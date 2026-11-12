@@ -1,4 +1,4 @@
-// Package health periodically probes routing targets and persists their health.
+// Package health periodically probes virtual model targets and persists their health.
 package health
 
 import (

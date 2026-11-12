@@ -9,18 +9,18 @@ import (
 	"github.com/gitsang/aigw/internal/store"
 )
 
-func target(name, role string, weight int, healthy bool) store.RouteTarget {
-	return store.RouteTarget{
+func target(name, role string, weight int, healthy bool) store.VirtualModelTarget {
+	return store.VirtualModelTarget{
 		ID: name, Role: role, ProviderName: name, Weight: weight, Enabled: true,
 		Health: &store.TargetHealth{Healthy: healthy},
 	}
 }
 
-func rule(policy string, retries int) store.RoutingRule {
-	return store.RoutingRule{
+func newVM(policy string, retries int) store.VirtualModel {
+	return store.VirtualModel{
 		VirtualModel: "deepseek-flash", RetryCount: retries, RetryPolicy: "fixed",
 		FallbackPolicy: policy, RetryDelayMS: 0,
-		Targets: []store.RouteTarget{
+		Targets: []store.VirtualModelTarget{
 			target("provider1", "lb", 50, true),
 			target("provider2", "lb", 50, true),
 			target("provider3", "fallback", 100, true),
@@ -32,7 +32,7 @@ func TestFallbackFirstOrder(t *testing.T) {
 	r := NewRunner()
 	r.Rand = rand.New(rand.NewSource(1))
 	var seen []string
-	res := r.Execute(context.Background(), rule("fallback-first", 3), func(_ context.Context, t store.RouteTarget) AttemptOutcome {
+	res := r.Execute(context.Background(), newVM("fallback-first", 3), func(_ context.Context, t store.VirtualModelTarget) AttemptOutcome {
 		seen = append(seen, t.ProviderName)
 		return AttemptOutcome{Retryable: true, StatusCode: 500}
 	})
@@ -59,7 +59,7 @@ func TestRetryFirstOrder(t *testing.T) {
 	r := NewRunner()
 	r.Rand = rand.New(rand.NewSource(1))
 	var seen []string
-	r.Execute(context.Background(), rule("retry-first", 3), func(_ context.Context, t store.RouteTarget) AttemptOutcome {
+	r.Execute(context.Background(), newVM("retry-first", 3), func(_ context.Context, t store.VirtualModelTarget) AttemptOutcome {
 		seen = append(seen, t.ProviderName)
 		return AttemptOutcome{Retryable: true, StatusCode: 500}
 	})
@@ -83,11 +83,11 @@ func TestRetryFirstOrder(t *testing.T) {
 
 func TestAllLBUnhealthyUsesFallbackOnly(t *testing.T) {
 	r := NewRunner()
-	rl := rule("fallback-first", 2)
-	rl.Targets[0].Health.Healthy = false
-	rl.Targets[1].Health.Healthy = false
+	vm := newVM("fallback-first", 2)
+	vm.Targets[0].Health.Healthy = false
+	vm.Targets[1].Health.Healthy = false
 	var seen []string
-	res := r.Execute(context.Background(), rl, func(_ context.Context, t store.RouteTarget) AttemptOutcome {
+	res := r.Execute(context.Background(), vm, func(_ context.Context, t store.VirtualModelTarget) AttemptOutcome {
 		seen = append(seen, t.ProviderName)
 		return AttemptOutcome{Success: true, StatusCode: 200}
 	})
@@ -98,9 +98,9 @@ func TestAllLBUnhealthyUsesFallbackOnly(t *testing.T) {
 
 func TestStopsOnNonRetryable(t *testing.T) {
 	r := NewRunner()
-	rl := rule("fallback-first", 3)
+	vm := newVM("fallback-first", 3)
 	seen := 0
-	res := r.Execute(context.Background(), rl, func(_ context.Context, t store.RouteTarget) AttemptOutcome {
+	res := r.Execute(context.Background(), vm, func(_ context.Context, t store.VirtualModelTarget) AttemptOutcome {
 		seen++
 		return AttemptOutcome{StatusCode: 400}
 	})
@@ -111,12 +111,12 @@ func TestStopsOnNonRetryable(t *testing.T) {
 
 func TestBackoffRespectsContext(t *testing.T) {
 	r := NewRunner()
-	rl := rule("fallback-first", 2)
-	rl.RetryDelayMS = 1000
+	vm := newVM("fallback-first", 2)
+	vm.RetryDelayMS = 1000
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	r.Execute(ctx, rl, func(_ context.Context, t store.RouteTarget) AttemptOutcome {
+	r.Execute(ctx, vm, func(_ context.Context, t store.VirtualModelTarget) AttemptOutcome {
 		return AttemptOutcome{Retryable: true, StatusCode: 500}
 	})
 	if time.Since(start) > 500*time.Millisecond {

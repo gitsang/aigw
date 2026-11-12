@@ -41,7 +41,7 @@ type Provider struct {
 	PathOverrides map[string]string `json:"path_overrides"`
 	Enabled       bool              `json:"enabled"`
 
-	// Per-provider request retry. RetryCount of 0 leaves the routing rule as the
+	// Per-provider request retry. RetryCount of 0 leaves the virtual model as the
 	// only retry layer.
 	RetryCount            int    `json:"retry_count"`
 	RetryBackoff          string `json:"retry_backoff"`
@@ -85,9 +85,9 @@ type ProviderInput struct {
 	ProxyPassword string `json:"proxy_password"`
 }
 
-type RouteTarget struct {
+type VirtualModelTarget struct {
 	ID                    string            `json:"id"`
-	RuleID                string            `json:"rule_id"`
+	VirtualModelID        string            `json:"virtual_model_id"`
 	Role                  string            `json:"role"`
 	ProviderID            string            `json:"provider_id"`
 	ProviderName          string            `json:"provider_name"`
@@ -113,36 +113,36 @@ type TargetHealth struct {
 	Error      string     `json:"error"`
 }
 
-type RoutingRule struct {
-	ID             string        `json:"id"`
-	Name           string        `json:"name"`
-	VirtualModel   string        `json:"virtual_model"`
-	APITypes       []string      `json:"api_types"`
-	Enabled        bool          `json:"enabled"`
-	RetryCount     int           `json:"retry_count"`
-	RetryPolicy    string        `json:"retry_policy"`
-	FallbackPolicy string        `json:"fallback_policy"`
-	RetryDelayMS   int           `json:"retry_delay_ms"`
-	MaxBackoffMS   int           `json:"max_backoff_ms"`
-	Targets        []RouteTarget `json:"targets"`
-	CreatedAt      time.Time     `json:"created_at"`
-	UpdatedAt      time.Time     `json:"updated_at"`
+type VirtualModel struct {
+	ID             string               `json:"id"`
+	Name           string               `json:"name"`
+	VirtualModel   string               `json:"virtual_model"`
+	APITypes       []string             `json:"api_types"`
+	Enabled        bool                 `json:"enabled"`
+	RetryCount     int                  `json:"retry_count"`
+	RetryPolicy    string               `json:"retry_policy"`
+	FallbackPolicy string               `json:"fallback_policy"`
+	RetryDelayMS   int                  `json:"retry_delay_ms"`
+	MaxBackoffMS   int                  `json:"max_backoff_ms"`
+	Targets        []VirtualModelTarget `json:"targets"`
+	CreatedAt      time.Time            `json:"created_at"`
+	UpdatedAt      time.Time            `json:"updated_at"`
 }
 
-type RoutingRuleInput struct {
-	Name           string             `json:"name"`
-	VirtualModel   string             `json:"virtual_model"`
-	APITypes       []string           `json:"api_types"`
-	Enabled        *bool              `json:"enabled"`
-	RetryCount     int                `json:"retry_count"`
-	RetryPolicy    string             `json:"retry_policy"`
-	FallbackPolicy string             `json:"fallback_policy"`
-	RetryDelayMS   int                `json:"retry_delay_ms"`
-	MaxBackoffMS   int                `json:"max_backoff_ms"`
-	Targets        []RouteTargetInput `json:"targets"`
+type VirtualModelInput struct {
+	Name           string                    `json:"name"`
+	VirtualModel   string                    `json:"virtual_model"`
+	APITypes       []string                  `json:"api_types"`
+	Enabled        *bool                     `json:"enabled"`
+	RetryCount     int                       `json:"retry_count"`
+	RetryPolicy    string                    `json:"retry_policy"`
+	FallbackPolicy string                    `json:"fallback_policy"`
+	RetryDelayMS   int                       `json:"retry_delay_ms"`
+	MaxBackoffMS   int                       `json:"max_backoff_ms"`
+	Targets        []VirtualModelTargetInput `json:"targets"`
 }
 
-type RouteTargetInput struct {
+type VirtualModelTargetInput struct {
 	ID              string   `json:"id,omitempty"`
 	Role            string   `json:"role"`
 	ProviderID      string   `json:"provider_id"`
@@ -246,7 +246,7 @@ type RequestLog struct {
 	App              string    `json:"app"`
 	APIKeyName       string    `json:"api_key_name"`
 	ProviderName     string    `json:"provider_name"`
-	RouteName        string    `json:"route_name"`
+	VirtualModelName string    `json:"virtual_model_name"`
 	StatusCode       int       `json:"status_code"`
 	LatencyMS        int       `json:"latency_ms"`
 	PromptTokens     int       `json:"prompt_tokens"`

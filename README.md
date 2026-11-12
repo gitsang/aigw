@@ -18,25 +18,26 @@ checks, retries/fallbacks, and a SvelteKit management console.
     request bodies, non-streaming responses and SSE streams are converted through
     a provider-neutral IR.
 - **Model routing**
-  - Virtual model names map to a routing rule.
+  - Virtual model names map to a configurable set of targets (edited on the
+    console's **Virtual Model** page).
   - Weighted LB across healthy targets (smooth exponential-race weighted shuffle).
   - Explicit `fallback` targets used when all LB targets are unhealthy/failing.
   - Retry policies: `fixed` and `exponential` backoff.
   - Fallback strategies: `fallback-first` and `retry-first`.
 - **Model catalog** — one page listing every model the gateway can serve:
-  - Routing-rule virtual models (served under their `virtual_model` name).
+  - Virtual models (served under their `virtual_model` name).
   - Provider models, exposed as `{providerId}/{modelId}` (provider slug, falling
     back to the provider name) with `{providerName}/{modelName}` as display name.
   - Model ids are joined verbatim: a provider model literally named
     `deepseek/deepseek-flash` under provider `yllm` is exposed as
     `yllm/deepseek/deepseek-flash`.
 - **Auto model matching** (opt-in, Settings page)
-  - When a request model has no routing rule, the gateway can fall back to the
+  - When a request model has no virtual model, the gateway can fall back to the
     first provider model whose public id *contains* the requested name. A request
     for `deepseek/deepseek-flash` therefore resolves to
     `yllm/deepseek/deepseek-flash` when only `yllm` is configured.
   - The matched model keeps its provider-level protocol, path, retry and proxy
-    settings; the request log labels the route as `auto-match`.
+    settings; the request log records `auto-match` in `virtual_model_name`.
 - **Health checks**
   - Background prober runs every minute (`health.interval`), probe timeout and
     concurrency are configurable.
@@ -53,15 +54,15 @@ checks, retries/fallbacks, and a SvelteKit management console.
   row stores computed cost based on the model actually used.
 - **Observability**
   - Full request log: time, ApiType, model, upstream model, app, API key name,
-    provider, route, status, latency, prompt/completion/total tokens, cost,
+    provider, virtual model, status, latency, prompt/completion/total tokens, cost,
     stream flag, attempt count, fallback used, retry/fallback policy, error, client IP.
   - Dashboard: request counts, success rate, avg/P95 latency, token totals, cost,
     model distribution, per-hour request series, app breakdown.
 - **SvelteKit management console**, built on
   [shadcn-svelte](https://www.shadcn-svelte.com) (Tailwind CSS v4) with pages for:
-  - Models (route + provider model catalog)
+  - Models (virtual model + provider model catalog, read-only)
   - Model Provider
-  - Routing
+  - Virtual Model
   - API Keys
   - Logs & statistics
   - Settings (auto model matching)
@@ -90,7 +91,7 @@ web/                  SvelteKit frontend
 Request flow:
 
 ```
-client → API key auth → protocol parse (IR) → routing rule lookup
+client → API key auth → protocol parse (IR) → virtual model lookup
        → weighted healthy LB / fallback with retry & backoff
        → upstream protocol build → upstream call
        → response or SSE translation → client
@@ -108,7 +109,7 @@ docker compose -f compose.yml up -d --build
 ```
 
 Open <http://localhost:8080>, log in with `AIGW_ADMIN_TOKEN` (default `change-me`),
-then add a provider, a routing rule and an API key.
+then add a provider, a virtual model and an API key.
 
 ### Local development
 
@@ -183,7 +184,7 @@ curl http://localhost:8080/v1/messages \
 Streaming (`"stream": true`) is supported for all three entrypoints, including
 cross-protocol streaming conversion.
 
-## Provider configuration → models → routing
+## Provider configuration → models → virtual models
 
 Protocol configuration is **per provider**, not global:
 
@@ -194,29 +195,31 @@ Protocol configuration is **per provider**, not global:
    provider's OpenAI-compatible `GET /models` endpoint or added manually. Every model
    may override the provider's API types, add a path override per API type, and
    carries its own **input/output price per 1M tokens** used for cost accounting.
-3. **Routing target** — only selects a provider + one of its models (plus role and
-   weight). Protocol and path are resolved automatically.
+3. **Virtual model** — the console's **Virtual Model** page edits a virtual model:
+   a public model name (what clients send) plus its target set (provider + one of
+   its models, role and weight) and its retry/fallback settings. Protocol and path
+   are resolved automatically.
 
 Resolution rules for an inbound request:
 
 - API type precedence: target protocols > model protocols > provider protocols >
   built-in defaults.
-- Each routing target has an **ordered multi-select of upstream protocols**
+- Each target has an **ordered multi-select of upstream protocols**
   (e.g. `Responses → Chat Completions`). The target list can restrict the
   protocols made available by the model/provider.
 - If the inbound protocol is present in the resolved target list it is used
   directly (no translation). Otherwise the **first protocol in the target's
   configured order** is used and the request/response/stream is translated.
 - Path precedence: model path override > provider path override > built-in
-  default. Routing targets no longer carry a path field.
+  default. Targets no longer carry a path field.
 - Health probes use the same resolved protocol/path.
 - Auto model matching (Settings page) resolves a request model that has no
-  routing rule to the first provider model whose `{providerId}/{modelId}` id
+  virtual model to the first provider model whose `{providerId}/{modelId}` id
   contains the requested name, case-insensitively; the matched model only
   contributes its provider settings (protocol list comes from the model/provider
   and the first matching protocol is used).
 
-Example: a rule accepts all three entry APIs and a target lists
+Example: a virtual model accepts all three entry APIs and a target lists
 `Responses, Chat Completions`.
 
 | Inbound | Upstream protocol |
@@ -225,12 +228,12 @@ Example: a rule accepts all three entry APIs and a target lists
 | Responses | Responses (exact match) |
 | Messages | Responses (first configured, translated) |
 
-## Routing example
+## Virtual model example
 
 The requested configuration — `deepseek-flash` load-balanced 50/50 over two
 providers' `/v1/chat/completions` with a provider3 fallback — maps to:
 
-- Rule `virtual_model: deepseek-flash`
+- Virtual model `deepseek-flash` (`virtual_model: deepseek-flash`)
 - LB target A: provider1 → model `deepseek/deepseek-flash`, weight 50
 - LB target B: provider2 → model `deepseek/deepseek-flash`, weight 50
 - Fallback target: provider3 → model `deepseek/deepseek-v4-flash`
@@ -239,13 +242,14 @@ Behavior:
 
 - `fallback-first` with `retry_count: 3`: each cycle tries all healthy LBs then the
   fallback; the whole sequence repeats up to three cycles.
-- `retry-first` with `retry_count: 3`: retries each route three times before moving
-  to the next route, ending with the fallback.
+- `retry-first` with `retry_count: 3`: retries each target three times before moving
+  to the next target, ending with the fallback.
 - When both LB targets fail health checks they are skipped entirely and every
   request goes directly to the fallback.
 
-The example rule can be created through the Routing page; providers with a
-health endpoint and pricing for cost calculation live on the Model Provider page.
+The example virtual model can be created through the **Virtual Model** page;
+providers with a health endpoint and pricing for cost calculation live on the
+Model Provider page.
 
 ## API (admin)
 
@@ -254,9 +258,9 @@ All admin endpoints require `Authorization: Bearer <admin_token>`:
 | Method | Path | Description |
 | --- | --- | --- |
 | GET | `/api/admin/session` | token check |
-| GET | `/api/admin/models` | list all route and provider models |
+| GET | `/api/admin/models` | list all virtual model and provider models |
 | GET | `/api/admin/settings` | read gateway settings |
-| PUT | `/api/admin/settings` | update gateway settings (auto route match) |
+| PUT | `/api/admin/settings` | update gateway settings (auto model match) |
 | GET | `/api/admin/providers` | list providers |
 | POST | `/api/admin/providers` | create provider |
 | PUT | `/api/admin/providers/{id}` | update provider |
@@ -266,10 +270,10 @@ All admin endpoints require `Authorization: Bearer <admin_token>`:
 | POST | `/api/admin/providers/{id}/models/discover` | sync models from `/models` |
 | PUT | `/api/admin/providers/{id}/models/{modelID}` | update model protocols/paths |
 | DELETE | `/api/admin/providers/{id}/models/{modelID}` | delete model |
-| GET | `/api/admin/routes` | list routing rules |
-| POST | `/api/admin/routes` | create rule |
-| PUT | `/api/admin/routes/{id}` | update rule |
-| DELETE | `/api/admin/routes/{id}` | delete rule |
+| GET | `/api/admin/virtual-models` | list virtual models |
+| POST | `/api/admin/virtual-models` | create virtual model |
+| PUT | `/api/admin/virtual-models/{id}` | update virtual model |
+| DELETE | `/api/admin/virtual-models/{id}` | delete virtual model |
 | GET | `/api/admin/keys` | list API keys |
 | POST | `/api/admin/keys` | create key (returns plaintext once) |
 | PUT | `/api/admin/keys/{id}` | update key |
@@ -278,6 +282,22 @@ All admin endpoints require `Authorization: Bearer <admin_token>`:
 | GET | `/api/admin/stats?range=24h` | aggregated statistics |
 | GET | `/healthz` | liveness |
 | GET | `/readyz` | readiness (checks PostgreSQL) |
+
+## Upgrading from "routing"
+
+The configuration entity used to be called a **routing rule** (`routing_rules` /
+`routing_targets`, `/api/admin/routes`, log field `route_name`, settings key
+`auto_route_match`). It is now a **virtual model** end to end. The migration is
+automatic on startup (`database.migrate: true`) and keeps existing data: the
+tables and columns are renamed in place. Compatibility shims:
+
+| Legacy | New | Kept for |
+| --- | --- | --- |
+| console URL `/routing` | `/virtual-models` | a 301 redirect |
+| `GET/POST/PUT/DELETE /api/admin/routes` | `/api/admin/virtual-models` | a server-side alias |
+| `auto_route_match` settings key | `auto_model_match` | read on load (migrated transparently), written back under the new key |
+| `route_name` log column | `virtual_model_name` | renamed in place, history preserved |
+| config block `routing:` | `gateway:` | still parsed when no `gateway` block is present |
 
 ## Security notes
 

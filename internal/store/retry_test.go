@@ -32,7 +32,7 @@ func TestRetryPolicyDelay(t *testing.T) {
 
 func TestRetryPolicyEnabled(t *testing.T) {
 	if (RetryPolicy{Count: 0}).Enabled() {
-		t.Fatal("retry count 0 must mean disabled so the routing rule stays in charge")
+		t.Fatal("retry count 0 must mean disabled so the virtual model stays in charge")
 	}
 	if !(RetryPolicy{Count: 1}).Enabled() {
 		t.Fatal("retry count 1 must be enabled")

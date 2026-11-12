@@ -105,24 +105,24 @@ type HealthProbeTarget struct {
 
 // RuntimeTarget is everything needed to perform one upstream request.
 type RuntimeTarget struct {
-	TargetID      string
-	RuleID        string
-	Role          string
-	ProviderID    string
-	ProviderName  string
-	BaseURL       string
-	AuthType      string
-	APIKey        string
-	Headers       map[string]string
-	TimeoutMS     int
-	UpstreamModel string
-	APIType       string
-	UpstreamPath  string
-	Weight        int
-	Priority      int
-	Cost          ModelCost
-	Proxy         ProxySettings
-	Retry         RetryPolicy
+	TargetID       string
+	VirtualModelID string
+	Role           string
+	ProviderID     string
+	ProviderName   string
+	BaseURL        string
+	AuthType       string
+	APIKey         string
+	Headers        map[string]string
+	TimeoutMS      int
+	UpstreamModel  string
+	APIType        string
+	UpstreamPath   string
+	Weight         int
+	Priority       int
+	Cost           ModelCost
+	Proxy          ProxySettings
+	Retry          RetryPolicy
 }
 
 func New(ctx context.Context, databaseURL string, maxConns, minConns int32, secretCipher *crypto.Cipher) (*Store, error) {
@@ -451,20 +451,20 @@ func normalizeProxyType(v string) string {
 	}
 }
 
-// ------------------------------------------------------------- routing rules
+// ----------------------------------------------------------- virtual models
 
-func (s *Store) ListRoutingRules(ctx context.Context) ([]RoutingRule, error) {
+func (s *Store) ListVirtualModels(ctx context.Context) ([]VirtualModel, error) {
 	rows, err := s.pool.Query(ctx, `
 SELECT id, name, virtual_model, api_types, enabled, retry_count, retry_policy,
        fallback_policy, retry_delay_ms, max_backoff_ms, created_at, updated_at
-FROM routing_rules ORDER BY created_at ASC`)
+FROM virtual_models ORDER BY created_at ASC`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := make([]RoutingRule, 0)
+	out := make([]VirtualModel, 0)
 	for rows.Next() {
-		r, err := scanRule(rows)
+		r, err := scanVirtualModel(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -477,19 +477,19 @@ FROM routing_rules ORDER BY created_at ASC`)
 	return out, rows.Err()
 }
 
-func scanRule(row rowScanner) (RoutingRule, error) {
-	var r RoutingRule
+func scanVirtualModel(row rowScanner) (VirtualModel, error) {
+	var r VirtualModel
 	err := row.Scan(&r.ID, &r.Name, &r.VirtualModel, &r.APITypes, &r.Enabled, &r.RetryCount,
 		&r.RetryPolicy, &r.FallbackPolicy, &r.RetryDelayMS, &r.MaxBackoffMS, &r.CreatedAt, &r.UpdatedAt)
 	return r, err
 }
 
-func (s *Store) GetRoutingRule(ctx context.Context, id string) (RoutingRule, error) {
+func (s *Store) GetVirtualModel(ctx context.Context, id string) (VirtualModel, error) {
 	row := s.pool.QueryRow(ctx, `
 SELECT id, name, virtual_model, api_types, enabled, retry_count, retry_policy,
        fallback_policy, retry_delay_ms, max_backoff_ms, created_at, updated_at
-FROM routing_rules WHERE id=$1`, id)
-	r, err := scanRule(row)
+FROM virtual_models WHERE id=$1`, id)
+	r, err := scanVirtualModel(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return r, ErrNotFound
 	}
@@ -500,12 +500,12 @@ FROM routing_rules WHERE id=$1`, id)
 	return r, err
 }
 
-func (s *Store) GetRoutingRuleByModel(ctx context.Context, model string) (RoutingRule, error) {
+func (s *Store) GetVirtualModelByModel(ctx context.Context, model string) (VirtualModel, error) {
 	row := s.pool.QueryRow(ctx, `
 SELECT id, name, virtual_model, api_types, enabled, retry_count, retry_policy,
        fallback_policy, retry_delay_ms, max_backoff_ms, created_at, updated_at
-FROM routing_rules WHERE virtual_model=$1 AND enabled=TRUE`, model)
-	r, err := scanRule(row)
+FROM virtual_models WHERE virtual_model=$1 AND enabled=TRUE`, model)
+	r, err := scanVirtualModel(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return r, ErrNotFound
 	}
@@ -516,26 +516,26 @@ FROM routing_rules WHERE virtual_model=$1 AND enabled=TRUE`, model)
 	return r, err
 }
 
-func (s *Store) loadTargets(ctx context.Context, ruleID string) ([]RouteTarget, error) {
+func (s *Store) loadTargets(ctx context.Context, virtualModelID string) ([]VirtualModelTarget, error) {
 	rows, err := s.pool.Query(ctx, `
-SELECT t.id, t.rule_id, t.role, t.provider_id, p.name, p.base_url,
+SELECT t.id, t.virtual_model_id, t.role, t.provider_id, p.name, p.base_url,
        COALESCE(t.provider_model_id::text,''), COALESCE(pm.model_id,''), t.upstream_model,
        t.api_types, t.weight, t.priority, t.enabled,
        COALESCE(pm.api_types,'{}'::text[]), COALESCE(pm.path_overrides,'{}'::jsonb),
        p.api_types, p.path_overrides,
        COALESCE(h.healthy, TRUE), h.checked_at, COALESCE(h.latency_ms,0),
        COALESCE(h.status_code,0), COALESCE(h.error,'')
-FROM routing_targets t
+FROM virtual_model_targets t
 JOIN providers p ON p.id=t.provider_id
 LEFT JOIN provider_models pm ON pm.id=t.provider_model_id
 LEFT JOIN target_health h ON h.target_id=t.id
-WHERE t.rule_id=$1
-ORDER BY t.role DESC, t.priority DESC, t.created_at ASC`, ruleID)
+WHERE t.virtual_model_id=$1
+ORDER BY t.role DESC, t.priority DESC, t.created_at ASC`, virtualModelID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := make([]RouteTarget, 0)
+	out := make([]VirtualModelTarget, 0)
 	for rows.Next() {
 		t, err := scanTarget(rows)
 		if err != nil {
@@ -546,11 +546,11 @@ ORDER BY t.role DESC, t.priority DESC, t.created_at ASC`, ruleID)
 	return out, rows.Err()
 }
 
-func scanTarget(row rowScanner) (RouteTarget, error) {
-	var t RouteTarget
+func scanTarget(row rowScanner) (VirtualModelTarget, error) {
+	var t VirtualModelTarget
 	h := TargetHealth{}
 	var modelOverrides, providerOverrides []byte
-	err := row.Scan(&t.ID, &t.RuleID, &t.Role, &t.ProviderID, &t.ProviderName, &t.ProviderBaseURL,
+	err := row.Scan(&t.ID, &t.VirtualModelID, &t.Role, &t.ProviderID, &t.ProviderName, &t.ProviderBaseURL,
 		&t.ProviderModelID, &t.UpstreamModel, &t.UpstreamModel, &t.APITypes,
 		&t.Weight, &t.Priority, &t.Enabled, &t.SupportedAPITypes, &modelOverrides,
 		&t.ProviderAPITypes, &providerOverrides,
@@ -568,15 +568,15 @@ func scanTarget(row rowScanner) (RouteTarget, error) {
 	return t, nil
 }
 
-func (s *Store) CreateRoutingRule(ctx context.Context, in RoutingRuleInput) (RoutingRule, error) {
+func (s *Store) CreateVirtualModel(ctx context.Context, in VirtualModelInput) (VirtualModel, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return RoutingRule{}, err
+		return VirtualModel{}, err
 	}
 	defer tx.Rollback(ctx)
 	var id string
 	err = tx.QueryRow(ctx, `
-INSERT INTO routing_rules (name, virtual_model, api_types, enabled, retry_count,
+INSERT INTO virtual_models (name, virtual_model, api_types, enabled, retry_count,
 retry_policy, fallback_policy, retry_delay_ms, max_backoff_ms)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
 		in.Name, in.VirtualModel, normalizeAPITypes(in.APITypes), boolOr(in.Enabled, true),
@@ -584,25 +584,25 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
 		normalizeFallbackPolicy(in.FallbackPolicy), normalizeDelay(in.RetryDelayMS, 250),
 		normalizeDelay(in.MaxBackoffMS, 5000)).Scan(&id)
 	if err != nil {
-		return RoutingRule{}, err
+		return VirtualModel{}, err
 	}
 	if err := insertTargets(ctx, tx, id, in.Targets); err != nil {
-		return RoutingRule{}, err
+		return VirtualModel{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return RoutingRule{}, err
+		return VirtualModel{}, err
 	}
-	return s.GetRoutingRule(ctx, id)
+	return s.GetVirtualModel(ctx, id)
 }
 
-func (s *Store) UpdateRoutingRule(ctx context.Context, id string, in RoutingRuleInput) (RoutingRule, error) {
+func (s *Store) UpdateVirtualModel(ctx context.Context, id string, in VirtualModelInput) (VirtualModel, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return RoutingRule{}, err
+		return VirtualModel{}, err
 	}
 	defer tx.Rollback(ctx)
 	cmd, err := tx.Exec(ctx, `
-UPDATE routing_rules SET name=$2, virtual_model=$3, api_types=$4, enabled=$5,
+UPDATE virtual_models SET name=$2, virtual_model=$3, api_types=$4, enabled=$5,
 retry_count=$6, retry_policy=$7, fallback_policy=$8, retry_delay_ms=$9, max_backoff_ms=$10
 WHERE id=$1`,
 		id, in.Name, in.VirtualModel, normalizeAPITypes(in.APITypes), boolOr(in.Enabled, true),
@@ -610,24 +610,24 @@ WHERE id=$1`,
 		normalizeFallbackPolicy(in.FallbackPolicy), normalizeDelay(in.RetryDelayMS, 250),
 		normalizeDelay(in.MaxBackoffMS, 5000))
 	if err != nil {
-		return RoutingRule{}, err
+		return VirtualModel{}, err
 	}
 	if cmd.RowsAffected() == 0 {
-		return RoutingRule{}, ErrNotFound
+		return VirtualModel{}, ErrNotFound
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM routing_targets WHERE rule_id=$1`, id); err != nil {
-		return RoutingRule{}, err
+	if _, err := tx.Exec(ctx, `DELETE FROM virtual_model_targets WHERE virtual_model_id=$1`, id); err != nil {
+		return VirtualModel{}, err
 	}
 	if err := insertTargets(ctx, tx, id, in.Targets); err != nil {
-		return RoutingRule{}, err
+		return VirtualModel{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return RoutingRule{}, err
+		return VirtualModel{}, err
 	}
-	return s.GetRoutingRule(ctx, id)
+	return s.GetVirtualModel(ctx, id)
 }
 
-func insertTargets(ctx context.Context, tx pgx.Tx, ruleID string, targets []RouteTargetInput) error {
+func insertTargets(ctx context.Context, tx pgx.Tx, virtualModelID string, targets []VirtualModelTargetInput) error {
 	for _, t := range targets {
 		role := RoleLB
 		if t.Role == RoleFallback {
@@ -660,10 +660,10 @@ SELECT provider_id::text, model_id FROM provider_models WHERE id=$1`,
 			weight = 100
 		}
 		if _, err := tx.Exec(ctx, `
-INSERT INTO routing_targets (rule_id, role, provider_id, provider_model_id, upstream_model, api_types,
+INSERT INTO virtual_model_targets (virtual_model_id, role, provider_id, provider_model_id, upstream_model, api_types,
 weight, priority, enabled)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-			ruleID, role, t.ProviderID, modelID, upstreamModel, apiTypes, weight, t.Priority,
+			virtualModelID, role, t.ProviderID, modelID, upstreamModel, apiTypes, weight, t.Priority,
 			boolOr(t.Enabled, true)); err != nil {
 			return err
 		}
@@ -671,8 +671,8 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
 	return nil
 }
 
-func (s *Store) DeleteRoutingRule(ctx context.Context, id string) error {
-	cmd, err := s.pool.Exec(ctx, `DELETE FROM routing_rules WHERE id=$1`, id)
+func (s *Store) DeleteVirtualModel(ctx context.Context, id string) error {
+	cmd, err := s.pool.Exec(ctx, `DELETE FROM virtual_models WHERE id=$1`, id)
 	if err != nil {
 		return err
 	}
@@ -772,7 +772,7 @@ SELECT t.id, p.id, p.name, p.base_url, p.auth_type, p.api_key_ciphertext, p.head
        COALESCE(pm.model_id,''), COALESCE(pm.api_types,'{}'::text[]),
        COALESCE(pm.path_overrides,'{}'::jsonb),
        p.proxy_type, p.proxy_url, p.proxy_username, p.proxy_password_ciphertext
-FROM routing_targets t
+FROM virtual_model_targets t
 JOIN providers p ON p.id=t.provider_id
 LEFT JOIN provider_models pm ON pm.id=t.provider_model_id
 WHERE t.enabled=TRUE AND p.enabled=TRUE AND (t.provider_model_id IS NULL OR pm.enabled=TRUE)`)
@@ -936,12 +936,12 @@ func (s *Store) TouchAPIKey(ctx context.Context, id string) {
 func (s *Store) InsertRequestLog(ctx context.Context, l RequestLog) error {
 	_, err := s.pool.Exec(ctx, `
 INSERT INTO request_logs (request_id, api_type, model, upstream_model, app, api_key_name,
-provider_name, route_name, status_code, latency_ms, prompt_tokens, completion_tokens,
+provider_name, virtual_model_name, status_code, latency_ms, prompt_tokens, completion_tokens,
 total_tokens, cost, stream, attempt_count, fallback_used, fallback_policy, retry_policy,
 error, client_ip)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
 		l.RequestID, l.APIType, l.Model, l.UpstreamModel, l.App, l.APIKeyName, l.ProviderName,
-		l.RouteName, l.StatusCode, l.LatencyMS, l.PromptTokens, l.CompletionTokens, l.TotalTokens,
+		l.VirtualModelName, l.StatusCode, l.LatencyMS, l.PromptTokens, l.CompletionTokens, l.TotalTokens,
 		l.Cost, l.Stream, l.AttemptCount, l.FallbackUsed, l.FallbackPolicy, l.RetryPolicy,
 		l.Error, l.ClientIP)
 	return err
@@ -995,7 +995,7 @@ func (s *Store) ListLogs(ctx context.Context, f LogFilter) ([]RequestLog, int64,
 	args = append(args, f.Limit, f.Offset)
 	rows, err := s.pool.Query(ctx, fmt.Sprintf(`
 SELECT id, created_at, request_id, api_type, model, upstream_model, app, api_key_name,
-       provider_name, route_name, status_code, latency_ms, prompt_tokens, completion_tokens,
+       provider_name, virtual_model_name, status_code, latency_ms, prompt_tokens, completion_tokens,
        total_tokens, cost::float8, stream, attempt_count, fallback_used, fallback_policy,
        retry_policy, error, client_ip
 FROM request_logs WHERE %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d`,
@@ -1008,7 +1008,7 @@ FROM request_logs WHERE %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d`,
 	for rows.Next() {
 		var l RequestLog
 		err := rows.Scan(&l.ID, &l.CreatedAt, &l.RequestID, &l.APIType, &l.Model, &l.UpstreamModel,
-			&l.App, &l.APIKeyName, &l.ProviderName, &l.RouteName, &l.StatusCode, &l.LatencyMS,
+			&l.App, &l.APIKeyName, &l.ProviderName, &l.VirtualModelName, &l.StatusCode, &l.LatencyMS,
 			&l.PromptTokens, &l.CompletionTokens, &l.TotalTokens, &l.Cost, &l.Stream,
 			&l.AttemptCount, &l.FallbackUsed, &l.FallbackPolicy, &l.RetryPolicy, &l.Error, &l.ClientIP)
 		if err != nil {

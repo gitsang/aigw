@@ -10,7 +10,7 @@ export const navItems = [
   { href: '/logs', label: '日志与统计', icon: ChartLineIcon },
   { href: '/models', label: 'Models', icon: LayersIcon },
   { href: '/providers', label: 'Model Provider', icon: BoxesIcon },
-  { href: '/routing', label: 'Routing', icon: RouteIcon },
+  { href: '/virtual-models', label: 'Virtual Model', icon: RouteIcon },
   { href: '/keys', label: 'API Keys', icon: KeyRoundIcon },
   { href: '/settings', label: 'Settings', icon: SettingsIcon }
 ];

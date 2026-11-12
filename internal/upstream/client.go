@@ -117,10 +117,11 @@ func buildProxyURL(proxy store.ProxySettings) (*url.URL, error) {
 	return parsed, nil
 }
 
-// Do forwards a request body to a routing target. The caller owns the response body.
+// Do forwards a request body to a virtual model target. The caller owns the
+// response body.
 //
 // When the provider configures its own retry policy, retries happen here, so a
-// single routing attempt may hit the same upstream more than once. The final
+// single dispatch attempt may hit the same upstream more than once. The final
 // attempt's response is returned unchanged so the caller can report the real
 // status code and error body.
 func (c *Client) Do(ctx context.Context, target store.RuntimeTarget, body []byte) (*http.Response, error) {

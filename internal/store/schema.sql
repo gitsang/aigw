@@ -19,7 +19,65 @@ ALTER TABLE providers ADD COLUMN IF NOT EXISTS path_overrides JSONB NOT NULL DEF
 ALTER TABLE providers DROP COLUMN IF EXISTS input_price_per_million;
 ALTER TABLE providers DROP COLUMN IF EXISTS output_price_per_million;
 
-CREATE TABLE IF NOT EXISTS routing_rules (
+-- ------------------------------------------- legacy "route" → "virtual model"
+-- The console's configuration entity used to be called a routing rule / route.
+-- It is now a virtual model end to end: console, admin API, JSON fields, Go
+-- types and tables. Rename the legacy tables, columns, triggers and indexes in
+-- place so existing deployments keep their data; the CREATE TABLE statements
+-- below then become no-ops on a migrated database.
+DO $$
+BEGIN
+    IF to_regclass('public.routing_rules') IS NOT NULL
+       AND to_regclass('public.virtual_models') IS NULL THEN
+        ALTER TABLE routing_rules RENAME TO virtual_models;
+    END IF;
+    IF to_regclass('public.routing_targets') IS NOT NULL
+       AND to_regclass('public.virtual_model_targets') IS NULL THEN
+        ALTER TABLE routing_targets RENAME TO virtual_model_targets;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'virtual_model_targets' AND column_name = 'rule_id') THEN
+        ALTER TABLE virtual_model_targets RENAME COLUMN rule_id TO virtual_model_id;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'request_logs' AND column_name = 'route_name') THEN
+        ALTER TABLE request_logs RENAME COLUMN route_name TO virtual_model_name;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_trigger
+               WHERE tgname = 'routing_rules_set_updated_at'
+                 AND tgrelid = to_regclass('public.virtual_models')) THEN
+        ALTER TRIGGER routing_rules_set_updated_at ON virtual_models
+            RENAME TO virtual_models_set_updated_at;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_trigger
+               WHERE tgname = 'routing_targets_set_updated_at'
+                 AND tgrelid = to_regclass('public.virtual_model_targets')) THEN
+        ALTER TRIGGER routing_targets_set_updated_at ON virtual_model_targets
+            RENAME TO virtual_model_targets_set_updated_at;
+    END IF;
+END $$;
+
+-- Constraint-backed indexes keep their old names after a table rename; rename
+-- them too so a migrated database looks exactly like a freshly created one.
+DO $$
+BEGIN
+    IF to_regclass('public.routing_rules_pkey') IS NOT NULL THEN
+        ALTER INDEX routing_rules_pkey RENAME TO virtual_models_pkey;
+    END IF;
+    IF to_regclass('public.routing_rules_virtual_model_key') IS NOT NULL THEN
+        ALTER INDEX routing_rules_virtual_model_key RENAME TO virtual_models_virtual_model_key;
+    END IF;
+    IF to_regclass('public.routing_targets_pkey') IS NOT NULL THEN
+        ALTER INDEX routing_targets_pkey RENAME TO virtual_model_targets_pkey;
+    END IF;
+END $$;
+
+-- The secondary indexes follow their renamed tables; drop the legacy names so
+-- the IF NOT EXISTS CREATE INDEX statements below recreate them under the new ones.
+DROP INDEX IF EXISTS idx_routing_targets_rule_id;
+DROP INDEX IF EXISTS idx_routing_targets_provider_id;
+
+CREATE TABLE IF NOT EXISTS virtual_models (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     virtual_model TEXT NOT NULL UNIQUE,
@@ -34,9 +92,9 @@ CREATE TABLE IF NOT EXISTS routing_rules (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS routing_targets (
+CREATE TABLE IF NOT EXISTS virtual_model_targets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    rule_id UUID NOT NULL REFERENCES routing_rules(id) ON DELETE CASCADE,
+    virtual_model_id UUID NOT NULL REFERENCES virtual_models(id) ON DELETE CASCADE,
     role TEXT NOT NULL DEFAULT 'lb' CHECK (role IN ('lb', 'fallback')),
     provider_id UUID NOT NULL REFERENCES providers(id) ON DELETE RESTRICT,
     upstream_model TEXT NOT NULL,
@@ -49,7 +107,7 @@ CREATE TABLE IF NOT EXISTS routing_targets (
 );
 
 CREATE TABLE IF NOT EXISTS target_health (
-    target_id UUID PRIMARY KEY REFERENCES routing_targets(id) ON DELETE CASCADE,
+    target_id UUID PRIMARY KEY REFERENCES virtual_model_targets(id) ON DELETE CASCADE,
     healthy BOOLEAN NOT NULL DEFAULT TRUE,
     checked_at TIMESTAMPTZ,
     latency_ms INTEGER NOT NULL DEFAULT 0,
@@ -80,7 +138,7 @@ CREATE TABLE IF NOT EXISTS request_logs (
     app TEXT NOT NULL DEFAULT '',
     api_key_name TEXT NOT NULL DEFAULT '',
     provider_name TEXT NOT NULL DEFAULT '',
-    route_name TEXT NOT NULL DEFAULT '',
+    virtual_model_name TEXT NOT NULL DEFAULT '',
     status_code INTEGER NOT NULL DEFAULT 0,
     latency_ms INTEGER NOT NULL DEFAULT 0,
     prompt_tokens INTEGER NOT NULL DEFAULT 0,
@@ -99,8 +157,8 @@ CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON request_logs(created_a
 CREATE INDEX IF NOT EXISTS idx_request_logs_model ON request_logs(model);
 CREATE INDEX IF NOT EXISTS idx_request_logs_app ON request_logs(app);
 CREATE INDEX IF NOT EXISTS idx_request_logs_api_type ON request_logs(api_type);
-CREATE INDEX IF NOT EXISTS idx_routing_targets_rule_id ON routing_targets(rule_id);
-CREATE INDEX IF NOT EXISTS idx_routing_targets_provider_id ON routing_targets(provider_id);
+CREATE INDEX IF NOT EXISTS idx_virtual_model_targets_virtual_model_id ON virtual_model_targets(virtual_model_id);
+CREATE INDEX IF NOT EXISTS idx_virtual_model_targets_provider_id ON virtual_model_targets(provider_id);
 
 
 -- ------------------------------------------------------ provider model catalog
@@ -119,12 +177,12 @@ CREATE TABLE IF NOT EXISTS provider_models (
 );
 CREATE INDEX IF NOT EXISTS idx_provider_models_provider_id ON provider_models(provider_id);
 
-ALTER TABLE routing_targets
+ALTER TABLE virtual_model_targets
     ADD COLUMN IF NOT EXISTS provider_model_id UUID REFERENCES provider_models(id) ON DELETE SET NULL;
-ALTER TABLE routing_targets
+ALTER TABLE virtual_model_targets
     ADD COLUMN IF NOT EXISTS api_types TEXT[] NOT NULL DEFAULT '{}'::TEXT[];
-ALTER TABLE routing_targets DROP COLUMN IF EXISTS api_type;
-ALTER TABLE routing_targets DROP COLUMN IF EXISTS upstream_path;
+ALTER TABLE virtual_model_targets DROP COLUMN IF EXISTS api_type;
+ALTER TABLE virtual_model_targets DROP COLUMN IF EXISTS upstream_path;
 
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS TRIGGER AS $$
 BEGIN
@@ -137,12 +195,12 @@ DROP TRIGGER IF EXISTS providers_set_updated_at ON providers;
 CREATE TRIGGER providers_set_updated_at BEFORE UPDATE ON providers
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
-DROP TRIGGER IF EXISTS routing_rules_set_updated_at ON routing_rules;
-CREATE TRIGGER routing_rules_set_updated_at BEFORE UPDATE ON routing_rules
+DROP TRIGGER IF EXISTS virtual_models_set_updated_at ON virtual_models;
+CREATE TRIGGER virtual_models_set_updated_at BEFORE UPDATE ON virtual_models
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
-DROP TRIGGER IF EXISTS routing_targets_set_updated_at ON routing_targets;
-CREATE TRIGGER routing_targets_set_updated_at BEFORE UPDATE ON routing_targets
+DROP TRIGGER IF EXISTS virtual_model_targets_set_updated_at ON virtual_model_targets;
+CREATE TRIGGER virtual_model_targets_set_updated_at BEFORE UPDATE ON virtual_model_targets
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 DROP TRIGGER IF EXISTS provider_models_set_updated_at ON provider_models;
@@ -153,7 +211,7 @@ FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 ALTER TABLE providers ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
 
 -- Per-provider request retry, applied around each upstream call. A retry count of
--- 0 keeps the routing-rule policy as the only retry layer.
+-- 0 keeps the virtual model's retry policy as the only retry layer.
 ALTER TABLE providers ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0
     CHECK (retry_count BETWEEN 0 AND 20);
 ALTER TABLE providers ADD COLUMN IF NOT EXISTS retry_backoff TEXT NOT NULL DEFAULT 'exponential'
@@ -223,7 +281,7 @@ END $$;
 
 -- ---------------------------------------------------------- gateway settings
 -- Key/value document store for console-editable gateway behavior. The 'gateway'
--- row currently holds {"auto_route_match": bool}; a missing row means defaults.
+-- row currently holds {"auto_model_match": bool}; a missing row means defaults.
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value JSONB NOT NULL DEFAULT '{}'::jsonb,

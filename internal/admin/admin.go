@@ -52,13 +52,24 @@ func (h *Handler) Routes(r chi.Router) {
 				r.Delete("/models/{modelID}", h.deleteProviderModel)
 			})
 		})
-		r.Route("/routes", func(r chi.Router) {
-			r.Get("/", h.listRoutes)
-			r.Post("/", h.createRoute)
+		r.Route("/virtual-models", func(r chi.Router) {
+			r.Get("/", h.listVirtualModels)
+			r.Post("/", h.createVirtualModel)
 			r.Route("/{id}", func(r chi.Router) {
-				r.Get("/", h.getRoute)
-				r.Put("/", h.updateRoute)
-				r.Delete("/", h.deleteRoute)
+				r.Get("/", h.getVirtualModel)
+				r.Put("/", h.updateVirtualModel)
+				r.Delete("/", h.deleteVirtualModel)
+			})
+		})
+		// Legacy alias: the resource used to be exposed as /api/admin/routes.
+		// Kept so existing scripts keep working; the console uses the new path.
+		r.Route("/routes", func(r chi.Router) {
+			r.Get("/", h.listVirtualModels)
+			r.Post("/", h.createVirtualModel)
+			r.Route("/{id}", func(r chi.Router) {
+				r.Get("/", h.getVirtualModel)
+				r.Put("/", h.updateVirtualModel)
+				r.Delete("/", h.deleteVirtualModel)
 			})
 		})
 		r.Route("/keys", func(r chi.Router) {
@@ -194,8 +205,8 @@ func (h *Handler) deleteProvider(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) listRoutes(w http.ResponseWriter, r *http.Request) {
-	items, err := h.store.ListRoutingRules(r.Context())
+func (h *Handler) listVirtualModels(w http.ResponseWriter, r *http.Request) {
+	items, err := h.store.ListVirtualModels(r.Context())
 	if err != nil {
 		h.fail(w, err)
 		return
@@ -203,8 +214,8 @@ func (h *Handler) listRoutes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, items)
 }
 
-func (h *Handler) getRoute(w http.ResponseWriter, r *http.Request) {
-	item, err := h.store.GetRoutingRule(r.Context(), chi.URLParam(r, "id"))
+func (h *Handler) getVirtualModel(w http.ResponseWriter, r *http.Request) {
+	item, err := h.store.GetVirtualModel(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
 		h.fail(w, err)
 		return
@@ -212,8 +223,8 @@ func (h *Handler) getRoute(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, item)
 }
 
-func (h *Handler) createRoute(w http.ResponseWriter, r *http.Request) {
-	var in store.RoutingRuleInput
+func (h *Handler) createVirtualModel(w http.ResponseWriter, r *http.Request) {
+	var in store.VirtualModelInput
 	if !decode(w, r, &in) {
 		return
 	}
@@ -225,7 +236,7 @@ func (h *Handler) createRoute(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "at least one target is required")
 		return
 	}
-	item, err := h.store.CreateRoutingRule(r.Context(), in)
+	item, err := h.store.CreateVirtualModel(r.Context(), in)
 	if err != nil {
 		h.fail(w, err)
 		return
@@ -233,8 +244,8 @@ func (h *Handler) createRoute(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, item)
 }
 
-func (h *Handler) updateRoute(w http.ResponseWriter, r *http.Request) {
-	var in store.RoutingRuleInput
+func (h *Handler) updateVirtualModel(w http.ResponseWriter, r *http.Request) {
+	var in store.VirtualModelInput
 	if !decode(w, r, &in) {
 		return
 	}
@@ -246,7 +257,7 @@ func (h *Handler) updateRoute(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "at least one target is required")
 		return
 	}
-	item, err := h.store.UpdateRoutingRule(r.Context(), chi.URLParam(r, "id"), in)
+	item, err := h.store.UpdateVirtualModel(r.Context(), chi.URLParam(r, "id"), in)
 	if err != nil {
 		h.fail(w, err)
 		return
@@ -254,8 +265,8 @@ func (h *Handler) updateRoute(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, item)
 }
 
-func (h *Handler) deleteRoute(w http.ResponseWriter, r *http.Request) {
-	if err := h.store.DeleteRoutingRule(r.Context(), chi.URLParam(r, "id")); err != nil {
+func (h *Handler) deleteVirtualModel(w http.ResponseWriter, r *http.Request) {
+	if err := h.store.DeleteVirtualModel(r.Context(), chi.URLParam(r, "id")); err != nil {
 		h.fail(w, err)
 		return
 	}

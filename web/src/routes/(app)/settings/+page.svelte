@@ -19,7 +19,7 @@
   import PageHeader from '$lib/components/app/page-header.svelte';
   import StatusBadge from '$lib/components/app/status-badge.svelte';
 
-  let settings = $state({ auto_route_match: false });
+  let settings = $state({ auto_model_match: false });
   let loading = $state(true);
   let saving = $state(false);
   let error = $state('');
@@ -36,19 +36,19 @@
     }
   }
 
-  async function toggleAutoRouteMatch(next) {
+  async function toggleAutoModelMatch(next) {
     if (saving) return;
-    const previous = settings.auto_route_match;
-    settings = { ...settings, auto_route_match: next };
+    const previous = settings.auto_model_match;
+    settings = { ...settings, auto_model_match: next };
     saving = true;
     try {
       settings = await api('/api/admin/settings', {
         method: 'PUT',
         body: JSON.stringify(settings)
       });
-      toast.success(next ? '已开启自动路由匹配' : '已关闭自动路由匹配');
+      toast.success(next ? '已开启自动模型匹配' : '已关闭自动模型匹配');
     } catch (e) {
-      settings = { ...settings, auto_route_match: previous };
+      settings = { ...settings, auto_model_match: previous };
       toast.error(e.message);
     } finally {
       saving = false;
@@ -81,35 +81,35 @@
     <Card.Header class="border-b">
       <div class="flex items-center gap-1.5">
         <SettingsIcon class="size-3.5 text-muted-foreground" />
-        <Card.Title class="text-sm">模型路由</Card.Title>
+        <Card.Title class="text-sm">模型自动匹配</Card.Title>
       </div>
       <Card.Description class="text-[11px]">
-        控制请求模型名没有匹配到 Routing 规则时网关的行为。
+        控制请求模型名没有匹配到虚拟模型时网关的行为。
       </Card.Description>
     </Card.Header>
     <Card.Content class="space-y-3 pt-3">
       <div class="flex flex-wrap items-start justify-between gap-3 rounded-lg border p-3">
         <div class="min-w-0 space-y-1">
           <div class="flex flex-wrap items-center gap-1.5">
-            <span class="text-xs font-medium">自动路由匹配</span>
-            <StatusBadge tone={settings.auto_route_match ? 'success' : 'neutral'} dot>
-              {settings.auto_route_match ? '已开启' : '已关闭'}
+            <span class="text-xs font-medium">自动模型匹配</span>
+            <StatusBadge tone={settings.auto_model_match ? 'success' : 'neutral'} dot>
+              {settings.auto_model_match ? '已开启' : '已关闭'}
             </StatusBadge>
             {#if saving}
               <Spinner class="size-3" />
             {/if}
           </div>
           <p class="max-w-2xl text-[11px] leading-relaxed text-muted-foreground">
-            开启后，当请求的模型名没有对应 Routing 规则时，网关会按 Provider 顺序查找第一个
+            开启后，当请求的模型名没有对应虚拟模型时，网关会按 Provider 顺序查找第一个
             <span class="font-mono">包含此模型名</span> 的 Provider 模型（对外 ID 为
             <span class="font-mono">provider/model</span>），并直接转发到该上游。
           </p>
         </div>
         <Switch
-          checked={settings.auto_route_match}
-          onCheckedChange={toggleAutoRouteMatch}
+          checked={settings.auto_model_match}
+          onCheckedChange={toggleAutoModelMatch}
           disabled={saving}
-          aria-label="自动路由匹配"
+          aria-label="自动模型匹配"
         />
       </div>
 
@@ -124,7 +124,7 @@
             <code class="rounded bg-background px-1 font-mono text-[10.5px]"
               >deepseek/deepseek-flash</code
             >
-            且没有同名 Routing 规则时：
+            且没有同名虚拟模型时：
           </li>
           <li class="pl-4">
             1. 依次遍历已启用的 Provider 模型；
@@ -146,8 +146,8 @@
       <Alert>
         <LayersIcon />
         <AlertDescription>
-          已存在的 Routing 规则始终优先；自动匹配只在其后兜底，且不会写入任何 Routing
-          规则。请求日志中的 <span class="font-mono">route_name</span> 会标记为
+          已存在的虚拟模型始终优先；自动匹配只在其后兜底，且不会写入任何虚拟模型。
+          请求日志中的 <span class="font-mono">virtual_model_name</span> 会标记为
           <span class="font-mono">auto-match</span>，便于审计。
         </AlertDescription>
       </Alert>

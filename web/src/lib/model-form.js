@@ -74,7 +74,7 @@ export function modelToForm(model) {
  * Convert an editable model row into the admin API payload.
  *
  * API format overrides are kept out of the editor on purpose: the provider-level
- * formats already cover the common case and routing validates support.
+ * formats already cover the common case and the gateway validates support.
  */
 export function modelToPayload(form) {
   return {

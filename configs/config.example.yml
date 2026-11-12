@@ -22,12 +22,11 @@ health:
   timeout: 10s
   concurrency: 8
 
-routing:
+# Per-request gateway limits. Retry/fallback policy is configured per virtual
+# model in the console, not here.
+gateway:
   request_timeout: 120s
   max_body_bytes: 33554432
-  default_retry_count: 3
-  default_retry_delay: 250ms
-  default_max_backoff: 5s
 
 web:
   dir: "./web/build"

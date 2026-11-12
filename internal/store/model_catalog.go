@@ -12,12 +12,13 @@ import (
 
 // Model catalog entry kinds.
 const (
-	ModelKindRoute    = "route"
-	ModelKindProvider = "provider"
+	ModelKindVirtualModel = "virtual_model"
+	ModelKindProvider     = "provider"
 )
 
-// ModelEntry is one model exposed by the gateway: either a virtual model backed
-// by a routing rule, or an upstream model reachable as "{providerId}/{modelId}".
+// ModelEntry is one model exposed by the gateway: either a virtual model
+// (a public model name backed by routing targets), or an upstream model
+// reachable as "{providerId}/{modelId}".
 type ModelEntry struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
@@ -26,10 +27,10 @@ type ModelEntry struct {
 	APITypes  []string  `json:"api_types"`
 	CreatedAt time.Time `json:"created_at"`
 
-	// Routing rule backed model (kind = route).
-	RouteID     string `json:"route_id,omitempty"`
-	RouteName   string `json:"route_name,omitempty"`
-	TargetCount int    `json:"target_count,omitempty"`
+	// Virtual model entry (kind = virtual_model).
+	VirtualModelID   string `json:"virtual_model_id,omitempty"`
+	VirtualModelName string `json:"virtual_model_name,omitempty"`
+	TargetCount      int    `json:"target_count,omitempty"`
 
 	// Provider backed model (kind = provider).
 	ProviderID      string     `json:"provider_id,omitempty"`
@@ -84,11 +85,10 @@ func effectiveModelAPITypes(modelTypes, providerTypes []string) []string {
 	return DefaultAPITypes()
 }
 
-// ListModelCatalog returns every model the gateway can serve: routing-rule
-// virtual models first, then each provider's models ordered by provider and
-// model id.
+// ListModelCatalog returns every model the gateway can serve: virtual models
+// first, then each provider's models ordered by provider and model id.
 func (s *Store) ListModelCatalog(ctx context.Context) ([]ModelEntry, error) {
-	out, err := s.listRouteModelEntries(ctx)
+	out, err := s.listVirtualModelEntries(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -99,19 +99,19 @@ func (s *Store) ListModelCatalog(ctx context.Context) ([]ModelEntry, error) {
 	return append(out, providerEntries...), nil
 }
 
-func (s *Store) listRouteModelEntries(ctx context.Context) ([]ModelEntry, error) {
+func (s *Store) listVirtualModelEntries(ctx context.Context) ([]ModelEntry, error) {
 	rows, err := s.pool.Query(ctx, `
 SELECT r.id, r.name, r.virtual_model, r.api_types, r.enabled, r.created_at,
-       (SELECT COUNT(*) FROM routing_targets t WHERE t.rule_id = r.id)
-FROM routing_rules r ORDER BY r.created_at ASC, r.virtual_model ASC`)
+       (SELECT COUNT(*) FROM virtual_model_targets t WHERE t.virtual_model_id = r.id)
+FROM virtual_models r ORDER BY r.created_at ASC, r.virtual_model ASC`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := make([]ModelEntry, 0)
 	for rows.Next() {
-		e := ModelEntry{Kind: ModelKindRoute}
-		if err := rows.Scan(&e.RouteID, &e.RouteName, &e.ID, &e.APITypes, &e.Enabled,
+		e := ModelEntry{Kind: ModelKindVirtualModel}
+		if err := rows.Scan(&e.VirtualModelID, &e.VirtualModelName, &e.ID, &e.APITypes, &e.Enabled,
 			&e.CreatedAt, &e.TargetCount); err != nil {
 			return nil, err
 		}
@@ -241,7 +241,7 @@ ORDER BY p.created_at ASC, pm.model_id ASC`)
 }
 
 // matchProviderModel implements the "first model containing the requested name"
-// rule. Matching is case-insensitive and considers the public identifier only.
+// strategy. Matching is case-insensitive and considers the public identifier only.
 func matchProviderModel(candidates []ModelMatch, query string) (ModelMatch, bool) {
 	needle := strings.ToLower(strings.TrimSpace(query))
 	if needle == "" {
@@ -256,8 +256,9 @@ func matchProviderModel(candidates []ModelMatch, query string) (ModelMatch, bool
 }
 
 // ResolveModelTarget loads one provider model as a standalone runtime target.
-// It lets the gateway dispatch a request to a matched model without a routing
-// rule; provider-level protocol, path, retry and proxy settings still apply.
+// It lets the gateway dispatch a request to a matched model without a
+// virtual model; provider-level protocol, path, retry and proxy settings still
+// apply.
 func (s *Store) ResolveModelTarget(ctx context.Context, providerModelID, inboundAPIType string) (RuntimeTarget, error) {
 	var t RuntimeTarget
 	var apiKeyCT, proxyCT string

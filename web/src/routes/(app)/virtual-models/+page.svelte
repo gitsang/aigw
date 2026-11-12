@@ -48,7 +48,7 @@
     priority: 0,
     enabled: true
   });
-  const blankRule = () => ({
+  const blankVirtualModel = () => ({
     name: '',
     virtual_model: '',
     api_types: APIS.map(([value]) => value),
@@ -61,7 +61,7 @@
     targets: [blankTarget('lb'), blankTarget('fallback')]
   });
 
-  let rules = $state([]);
+  let virtualModels = $state([]);
   let providers = $state([]);
   let providerModels = $state({});
   let loading = $state(true);
@@ -69,7 +69,7 @@
 
   let modalOpen = $state(false);
   let editingId = $state(null);
-  let form = $state(blankRule());
+  let form = $state(blankVirtualModel());
   let saving = $state(false);
 
   let deleteTarget = $state(null);
@@ -79,8 +79,8 @@
     loading = true;
     error = '';
     try {
-      [rules, providers] = await Promise.all([
-        api('/api/admin/routes'),
+      [virtualModels, providers] = await Promise.all([
+        api('/api/admin/virtual-models'),
         api('/api/admin/providers')
       ]);
     } catch (e) {
@@ -92,7 +92,7 @@
 
   async function openCreate() {
     editingId = null;
-    form = blankRule();
+    form = blankVirtualModel();
     for (const provider of providers) await ensureModels(provider.id);
     if (providers.length) {
       form.targets[0].provider_id = providers[0].id;
@@ -105,19 +105,19 @@
     modalOpen = true;
   }
 
-  async function openEdit(rule) {
-    editingId = rule.id;
+  async function openEdit(vm) {
+    editingId = vm.id;
     form = {
-      name: rule.name,
-      virtual_model: rule.virtual_model,
-      api_types: [...rule.api_types],
-      enabled: rule.enabled,
-      retry_count: rule.retry_count,
-      retry_policy: rule.retry_policy,
-      fallback_policy: rule.fallback_policy,
-      retry_delay_ms: rule.retry_delay_ms,
-      max_backoff_ms: rule.max_backoff_ms,
-      targets: rule.targets.map((target) => ({
+      name: vm.name,
+      virtual_model: vm.virtual_model,
+      api_types: [...vm.api_types],
+      enabled: vm.enabled,
+      retry_count: vm.retry_count,
+      retry_policy: vm.retry_policy,
+      fallback_policy: vm.fallback_policy,
+      retry_delay_ms: vm.retry_delay_ms,
+      max_backoff_ms: vm.max_backoff_ms,
+      targets: vm.targets.map((target) => ({
         id: target.id,
         role: target.role,
         provider_id: target.provider_id,
@@ -240,11 +240,11 @@
     try {
       const payload = { ...form, targets: form.targets.map((target) => ({ ...target })) };
       if (editingId) {
-        await api(`/api/admin/routes/${editingId}`, { method: 'PUT', body: JSON.stringify(payload) });
+        await api(`/api/admin/virtual-models/${editingId}`, { method: 'PUT', body: JSON.stringify(payload) });
       } else {
-        await api('/api/admin/routes', { method: 'POST', body: JSON.stringify(payload) });
+        await api('/api/admin/virtual-models', { method: 'POST', body: JSON.stringify(payload) });
       }
-      toast.success(editingId ? 'Routing 规则已更新' : 'Routing 规则已创建');
+      toast.success(editingId ? '虚拟模型已更新' : '虚拟模型已创建');
       modalOpen = false;
       await load();
     } catch (e) {
@@ -257,8 +257,8 @@
   async function remove() {
     deleting = true;
     try {
-      await api(`/api/admin/routes/${deleteTarget.id}`, { method: 'DELETE' });
-      toast.success('Routing 规则已删除');
+      await api(`/api/admin/virtual-models/${deleteTarget.id}`, { method: 'DELETE' });
+      toast.success('虚拟模型已删除');
       deleteTarget = null;
       await load();
     } catch (e) {
@@ -272,16 +272,16 @@
 </script>
 
 <svelte:head>
-  <title>Routing · aigw</title>
+  <title>Virtual Model · aigw</title>
 </svelte:head>
 
 <PageHeader
-  title="Routing"
-  description="虚拟模型 → 加权 LB target → fallback。健康检查每分钟执行，不健康的 LB 自动移出，全部下线时使用 fallback。"
+  title="Virtual Model"
+  description="对外模型名（客户端请求的 model）→ 加权 LB target → fallback。健康检查每分钟执行，不健康的 LB 自动移出，全部下线时使用 fallback。"
 >
   <Button onclick={openCreate} disabled={!providers.length}>
     <PlusIcon />
-    添加规则
+    添加虚拟模型
   </Button>
 </PageHeader>
 
@@ -307,21 +307,21 @@
       <Skeleton class="h-[184px] w-full rounded-lg" />
     {/each}
   </div>
-{:else if !rules.length}
+{:else if !virtualModels.length}
   <Card.Root>
     <Card.Content>
       <Empty.Root class="py-10">
         <Empty.Header>
           <Empty.Media variant="icon"><RouteIcon /></Empty.Media>
-          <Empty.Title>还没有 Routing 规则</Empty.Title>
+          <Empty.Title>还没有虚拟模型</Empty.Title>
           <Empty.Description>
-            创建一条规则，把对外模型名映射到一个或多个上游 provider。
+            创建一个虚拟模型，把对外模型名映射到一个或多个上游 provider。
           </Empty.Description>
         </Empty.Header>
         <Empty.Content>
           <Button variant="outline" onclick={openCreate} disabled={!providers.length}>
             <PlusIcon />
-            创建规则
+            创建虚拟模型
           </Button>
         </Empty.Content>
       </Empty.Root>
@@ -329,32 +329,32 @@
   </Card.Root>
 {:else}
   <section class="space-y-2.5">
-    {#each rules as rule (rule.id)}
+    {#each virtualModels as vm (vm.id)}
       <Card.Root class="gap-2">
         <Card.Header>
           <div class="flex flex-wrap items-start justify-between gap-2">
             <div class="min-w-0 space-y-1.5">
               <div class="flex flex-wrap items-center gap-1.5">
                 <span class="font-mono text-sm font-semibold tracking-tight">
-                  {rule.virtual_model}
+                  {vm.virtual_model}
                 </span>
-                <StatusBadge tone={rule.enabled ? 'success' : 'neutral'} dot>
-                  {rule.enabled ? '启用' : '停用'}
+                <StatusBadge tone={vm.enabled ? 'success' : 'neutral'} dot>
+                  {vm.enabled ? '启用' : '停用'}
                 </StatusBadge>
-                <StatusBadge tone="violet">{rule.fallback_policy}</StatusBadge>
-                <StatusBadge tone="warning">{rule.retry_policy} · {rule.retry_count}x</StatusBadge>
+                <StatusBadge tone="violet">{vm.fallback_policy}</StatusBadge>
+                <StatusBadge tone="warning">{vm.retry_policy} · {vm.retry_count}x</StatusBadge>
               </div>
               <div class="text-[11px] text-muted-foreground">
-                {rule.name} · {rule.retry_delay_ms}ms base / {rule.max_backoff_ms}ms max backoff
+                {vm.name} · {vm.retry_delay_ms}ms base / {vm.max_backoff_ms}ms max backoff
               </div>
               <div class="flex flex-wrap gap-1">
-                {#each rule.api_types as type (type)}
+                {#each vm.api_types as type (type)}
                   <StatusBadge tone="info">{apiLabel(type)}</StatusBadge>
                 {/each}
               </div>
             </div>
             <div class="flex shrink-0 items-center gap-1">
-              <Button variant="outline" size="sm" onclick={() => openEdit(rule)}>
+              <Button variant="outline" size="sm" onclick={() => openEdit(vm)}>
                 <PencilIcon />
                 编辑
               </Button>
@@ -362,7 +362,7 @@
                 variant="ghost"
                 size="sm"
                 class="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                onclick={() => (deleteTarget = rule)}
+                onclick={() => (deleteTarget = vm)}
               >
                 <Trash2Icon />
                 删除
@@ -383,7 +383,7 @@
                 <span class="text-right">权重</span>
                 <span>健康</span>
               </div>
-              {#each rule.targets as target, index (target.id ?? index)}
+              {#each vm.targets as target, index (target.id ?? index)}
                 <div
                   class="grid grid-cols-[70px_minmax(180px,1.4fr)_minmax(190px,1.1fr)_60px_minmax(140px,0.9fr)] items-center gap-2 border-t px-2.5 py-1.5 text-[11px]"
                   class:opacity-60={!target.enabled}
@@ -449,7 +449,7 @@
 <Dialog.Root bind:open={modalOpen}>
   <Dialog.Content class="max-h-[88vh] overflow-y-auto sm:max-w-4xl">
     <Dialog.Header>
-      <Dialog.Title>{editingId ? '编辑 Routing 规则' : '添加 Routing 规则'}</Dialog.Title>
+      <Dialog.Title>{editingId ? '编辑虚拟模型' : '添加虚拟模型'}</Dialog.Title>
       <Dialog.Description>
         虚拟模型映射到多个上游 target，按权重负载均衡，失败时按策略重试与兜底。
       </Dialog.Description>
@@ -457,7 +457,10 @@
 
     <div class="grid gap-3 sm:grid-cols-2">
       <div class="grid gap-1.5">
-        <Label for="r-name">规则名称</Label>
+        <Label for="r-name">
+          名称
+          <span class="text-[10px] font-normal text-muted-foreground">（写入日志 virtual_model_name）</span>
+        </Label>
         <Input id="r-name" bind:value={form.name} placeholder="deepseek-flash-lb" />
       </div>
       <div class="grid gap-1.5">
@@ -495,7 +498,7 @@
               fallback-first · 每轮先尝试全部 LB，再 fallback，整体循环重试
             </Select.Item>
             <Select.Item value="retry-first" label="retry-first">
-              retry-first · 单条路由重试 N 次后切换，最后 fallback
+              retry-first · 单个 target 重试 N 次后切换，最后 fallback
             </Select.Item>
           </Select.Content>
         </Select.Root>
@@ -528,7 +531,7 @@
 
     <div class="flex items-center justify-between gap-2 rounded-lg border px-3 py-2">
       <div class="space-y-0.5">
-        <div class="text-xs font-medium">启用该规则</div>
+        <div class="text-xs font-medium">启用该虚拟模型</div>
         <div class="text-[10.5px] text-muted-foreground">
           停用后该虚拟模型立即不可用
         </div>
@@ -708,8 +711,8 @@
 
 <ConfirmDialog
   bind:open={() => !!deleteTarget, (value) => !value && (deleteTarget = null)}
-  title="删除 Routing 规则"
-  description={`确定删除规则 ${deleteTarget?.virtual_model || ''}？使用该模型的客户端将立即失败。`}
+  title="删除虚拟模型"
+  description={`确定删除虚拟模型 ${deleteTarget?.virtual_model || ''}？使用该模型的客户端将立即失败。`}
   busy={deleting}
   onconfirm={remove}
 />

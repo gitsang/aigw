@@ -63,6 +63,10 @@ func (s *Server) Handler() http.Handler {
 	r.HandleFunc("/messages", s.gateway.Gateway("messages"))
 
 	s.admin.Routes(r)
+	// The console page used to live at /routing. Redirect old bookmarks to the
+	// renamed page; the console itself is a client-side SPA underneath.
+	r.Handle("/routing", s.redirectToVirtualModels())
+	r.Handle("/routing/*", s.redirectToVirtualModels())
 	r.NotFound(s.serveFrontend)
 	return r
 }
@@ -128,6 +132,18 @@ func (s *Server) cors(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// redirectToVirtualModels permanently moves the legacy "/routing" console URL to
+// the renamed "/virtual-models" page.
+func (s *Server) redirectToVirtualModels() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		target := "/virtual-models" + strings.TrimPrefix(r.URL.Path, "/routing")
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, target, http.StatusMovedPermanently)
+	}
 }
 
 func (s *Server) serveFrontend(w http.ResponseWriter, r *http.Request) {

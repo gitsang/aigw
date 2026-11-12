@@ -38,20 +38,20 @@
   let search = $state('');
   let kind = $state('all');
 
-  const routeCount = $derived(models.filter((model) => model.kind === 'route').length);
+  const virtualModelCount = $derived(models.filter((model) => model.kind === 'virtual_model').length);
   const providerCount = $derived(models.filter((model) => model.kind === 'provider').length);
   const offlineCount = $derived(models.filter((model) => !model.enabled).length);
 
   const visible = $derived(
     models.filter((model) => {
-      if (kind === 'route' && model.kind !== 'route') return false;
+      if (kind === 'virtual_model' && model.kind !== 'virtual_model') return false;
       if (kind === 'provider' && model.kind !== 'provider') return false;
       const q = search.trim().toLowerCase();
       if (!q) return true;
       return [
         model.id,
         model.name,
-        model.route_name,
+        model.virtual_model_name,
         model.provider_name,
         model.provider_slug,
         model.model_id,
@@ -101,7 +101,7 @@
 
 <PageHeader
   title="Models"
-  description="网关可用的全部模型：Routing 规则对外暴露的虚拟模型，以及 Provider 提供的模型（对外 ID 为 provider/model）。"
+  description="网关可用的全部模型：Virtual Model 页创建的虚拟模型，以及 Provider 提供的模型（对外 ID 为 provider/model）。此页是只读目录，创建与编辑请到 Virtual Model 或 Model Provider。"
 >
   <Button variant="outline" size="sm" onclick={load} disabled={loading}>
     <RefreshCwIcon class={loading ? 'animate-spin' : ''} />
@@ -110,8 +110,8 @@
 </PageHeader>
 
 <div class="grid gap-3 sm:grid-cols-3">
-  <StatCard label="全部模型" value={models.length} hint="路由 + Provider 模型" icon={LayersIcon} />
-  <StatCard label="路由模型" value={routeCount} hint="Routing 规则的对外模型名" icon={RouteIcon} />
+  <StatCard label="全部模型" value={models.length} hint="虚拟模型 + Provider 模型" icon={LayersIcon} />
+  <StatCard label="虚拟模型" value={virtualModelCount} hint="客户端请求时可用的模型名" icon={RouteIcon} />
   <StatCard label="Provider 模型" value={providerCount} hint={`${offlineCount} 个不可用`} icon={BoxIcon} />
 </div>
 
@@ -129,7 +129,7 @@
         <Tabs.Root bind:value={kind}>
           <Tabs.List>
             <Tabs.Trigger value="all">全部</Tabs.Trigger>
-            <Tabs.Trigger value="route">路由模型</Tabs.Trigger>
+            <Tabs.Trigger value="virtual_model">虚拟模型</Tabs.Trigger>
             <Tabs.Trigger value="provider">Provider 模型</Tabs.Trigger>
           </Tabs.List>
         </Tabs.Root>
@@ -153,7 +153,7 @@
         <Table.Row>
           <Table.Head>模型 ID</Table.Head>
           <Table.Head>来源</Table.Head>
-          <Table.Head>Provider / 路由</Table.Head>
+          <Table.Head>Provider / 名称</Table.Head>
           <Table.Head>接口</Table.Head>
           <Table.Head class="text-right">上下文</Table.Head>
           <Table.Head class="text-right">价格 / 1M</Table.Head>
@@ -182,7 +182,7 @@
                   <Empty.Description>
                     {models.length
                       ? '调整搜索词或来源筛选后重试。'
-                      : '先在 Model Provider 添加 Provider 与模型，或创建 Routing 规则。'}
+                      : '先在 Model Provider 添加 Provider 与模型，或到 Virtual Model 页创建虚拟模型。'}
                   </Empty.Description>
                 </Empty.Header>
               </Empty.Root>
@@ -199,8 +199,8 @@
               </Table.Cell>
               <Table.Cell>
                 <div class="flex flex-wrap items-center gap-1">
-                  {#if model.kind === 'route'}
-                    <StatusBadge tone="violet">路由</StatusBadge>
+                  {#if model.kind === 'virtual_model'}
+                    <StatusBadge tone="violet">虚拟模型</StatusBadge>
                   {:else}
                     <StatusBadge tone="info">Provider</StatusBadge>
                     <span class="text-[10px] text-muted-foreground">
@@ -210,8 +210,8 @@
                 </div>
               </Table.Cell>
               <Table.Cell class="max-w-[220px]">
-                {#if model.kind === 'route'}
-                  <div class="truncate text-[11px]">{model.route_name || model.id}</div>
+                {#if model.kind === 'virtual_model'}
+                  <div class="truncate text-[11px]">{model.virtual_model_name || model.id}</div>
                   <div class="text-[10px] text-muted-foreground">
                     {model.target_count} 个 target
                   </div>

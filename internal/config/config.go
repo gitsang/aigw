@@ -16,8 +16,13 @@ type Config struct {
 	Database DatabaseConfig `yaml:"database"`
 	Security SecurityConfig `yaml:"security"`
 	Health   HealthConfig   `yaml:"health"`
-	Routing  RoutingConfig  `yaml:"routing"`
+	Gateway  GatewayConfig  `yaml:"gateway"`
 	Web      WebConfig      `yaml:"web"`
+
+	// LegacyRouting is the pre-rename name of the gateway block. It is still
+	// accepted so existing config files keep working; new configs should use
+	// "gateway".
+	LegacyRouting *GatewayConfig `yaml:"routing,omitempty"`
 }
 
 type ServerConfig struct {
@@ -46,12 +51,11 @@ type HealthConfig struct {
 	Concurrency int           `yaml:"concurrency"`
 }
 
-type RoutingConfig struct {
-	RequestTimeout    time.Duration `yaml:"request_timeout"`
-	MaxBodyBytes      int64         `yaml:"max_body_bytes"`
-	DefaultRetryCount int           `yaml:"default_retry_count"`
-	DefaultRetryDelay time.Duration `yaml:"default_retry_delay"`
-	DefaultMaxBackoff time.Duration `yaml:"default_max_backoff"`
+// GatewayConfig holds per-request gateway limits. Retry/fallback policy is no
+// longer global: it belongs to each virtual model.
+type GatewayConfig struct {
+	RequestTimeout time.Duration `yaml:"request_timeout"`
+	MaxBodyBytes   int64         `yaml:"max_body_bytes"`
 }
 
 type WebConfig struct {
@@ -76,12 +80,9 @@ func Default() Config {
 		},
 		Security: SecurityConfig{EncryptionKey: "aigw-development-key-change-me"},
 		Health:   HealthConfig{Interval: time.Minute, Timeout: 10 * time.Second, Concurrency: 8},
-		Routing: RoutingConfig{
-			RequestTimeout:    120 * time.Second,
-			MaxBodyBytes:      32 << 20,
-			DefaultRetryCount: 3,
-			DefaultRetryDelay: 250 * time.Millisecond,
-			DefaultMaxBackoff: 5 * time.Second,
+		Gateway: GatewayConfig{
+			RequestTimeout: 120 * time.Second,
+			MaxBodyBytes:   32 << 20,
 		},
 		Web: WebConfig{Dir: "./web/build"},
 	}
@@ -95,8 +96,25 @@ func Load(path string) (Config, error) {
 			if !errors.Is(err, os.ErrNotExist) {
 				return cfg, fmt.Errorf("read config: %w", err)
 			}
-		} else if err := yaml.Unmarshal(b, &cfg); err != nil {
-			return cfg, fmt.Errorf("parse config: %w", err)
+		} else {
+			var keys map[string]any
+			if err := yaml.Unmarshal(b, &keys); err != nil {
+				return cfg, fmt.Errorf("parse config: %w", err)
+			}
+			if err := yaml.Unmarshal(b, &cfg); err != nil {
+				return cfg, fmt.Errorf("parse config: %w", err)
+			}
+			// The block used to be called "routing". Honour it only when the
+			// file has no "gateway" block, so the new name always wins.
+			_, hasGateway := keys["gateway"]
+			if !hasGateway && cfg.LegacyRouting != nil {
+				if cfg.LegacyRouting.RequestTimeout > 0 {
+					cfg.Gateway.RequestTimeout = cfg.LegacyRouting.RequestTimeout
+				}
+				if cfg.LegacyRouting.MaxBodyBytes > 0 {
+					cfg.Gateway.MaxBodyBytes = cfg.LegacyRouting.MaxBodyBytes
+				}
+			}
 		}
 	}
 	applyEnv(&cfg)
@@ -115,17 +133,8 @@ func Load(path string) (Config, error) {
 	if cfg.Health.Concurrency <= 0 {
 		cfg.Health.Concurrency = 8
 	}
-	if cfg.Routing.DefaultRetryCount < 1 {
-		cfg.Routing.DefaultRetryCount = 1
-	}
-	if cfg.Routing.DefaultRetryDelay <= 0 {
-		cfg.Routing.DefaultRetryDelay = 250 * time.Millisecond
-	}
-	if cfg.Routing.DefaultMaxBackoff <= 0 {
-		cfg.Routing.DefaultMaxBackoff = 5 * time.Second
-	}
-	if cfg.Routing.MaxBodyBytes <= 0 {
-		cfg.Routing.MaxBodyBytes = 32 << 20
+	if cfg.Gateway.MaxBodyBytes <= 0 {
+		cfg.Gateway.MaxBodyBytes = 32 << 20
 	}
 	return cfg, nil
 }
@@ -158,7 +167,7 @@ func applyEnv(cfg *Config) {
 	setDuration("AIGW_HEALTH_INTERVAL", &cfg.Health.Interval)
 	setDuration("AIGW_HEALTH_TIMEOUT", &cfg.Health.Timeout)
 	setInt("AIGW_HEALTH_CONCURRENCY", &cfg.Health.Concurrency)
-	setDuration("AIGW_REQUEST_TIMEOUT", &cfg.Routing.RequestTimeout)
+	setDuration("AIGW_REQUEST_TIMEOUT", &cfg.Gateway.RequestTimeout)
 	if v, ok := os.LookupEnv("AIGW_CORS_ORIGINS"); ok {
 		var origins []string
 		for _, p := range strings.Split(v, ",") {

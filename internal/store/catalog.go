@@ -350,7 +350,7 @@ func (s *Store) ResolveTarget(ctx context.Context, targetID, inboundAPIType stri
 	var modelOverridesRaw []byte
 	var tiersRaw []byte
 	err := s.pool.QueryRow(ctx, `
-SELECT t.id, t.rule_id, t.role, p.id, p.name, p.base_url, p.auth_type,
+SELECT t.id, t.virtual_model_id, t.role, p.id, p.name, p.base_url, p.auth_type,
        p.api_key_ciphertext, p.headers, p.timeout_ms, t.upstream_model, t.api_types,
        t.weight, t.priority,
        COALESCE(pm.cost_currency,'USD'), COALESCE(pm.cost_input,0)::float8,
@@ -362,12 +362,12 @@ SELECT t.id, t.rule_id, t.role, p.id, p.name, p.base_url, p.auth_type,
        p.proxy_type, p.proxy_url, p.proxy_username, p.proxy_password_ciphertext,
        p.retry_count, p.retry_backoff, p.retry_initial_ms, p.retry_max_ms,
        p.retry_linear_interval_ms
-FROM routing_targets t
+FROM virtual_model_targets t
 JOIN providers p ON p.id=t.provider_id
 LEFT JOIN provider_models pm ON pm.id=t.provider_model_id
 WHERE t.id=$1 AND t.enabled=TRUE AND p.enabled=TRUE
   AND (t.provider_model_id IS NULL OR pm.enabled=TRUE)`, targetID).Scan(
-		&t.TargetID, &t.RuleID, &t.Role, &t.ProviderID, &t.ProviderName, &t.BaseURL,
+		&t.TargetID, &t.VirtualModelID, &t.Role, &t.ProviderID, &t.ProviderName, &t.BaseURL,
 		&t.AuthType, &ct, &headers, &t.TimeoutMS, &t.UpstreamModel, &targetTypes,
 		&t.Weight, &t.Priority,
 		&t.Cost.Currency, &t.Cost.Input, &t.Cost.Output,

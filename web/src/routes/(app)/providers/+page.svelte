@@ -344,7 +344,7 @@
           <Empty.Header>
             <Empty.Media variant="icon"><ServerIcon /></Empty.Media>
             <Empty.Title>还没有 Provider</Empty.Title>
-            <Empty.Description>先添加一个上游服务，再配置模型与路由规则。</Empty.Description>
+            <Empty.Description>先添加一个上游服务，再配置模型与虚拟模型。</Empty.Description>
           </Empty.Header>
           <Empty.Content>
             <Button variant="outline" onclick={openCreate}>
@@ -543,7 +543,7 @@
                 <div>
                   <div class="text-xs font-medium">重试规则</div>
                   <p class="mt-0.5 text-[10.5px] text-muted-foreground">
-                    Provider 级重试；设为 0 时仅由路由规则控制重试。
+                    Provider 级重试；设为 0 时仅由虚拟模型的重试策略控制。
                   </p>
                 </div>
                 {#if form.retry_count > 0}
@@ -768,7 +768,7 @@
 <ConfirmDialog
   bind:open={() => !!deleteTarget, (value) => !value && (deleteTarget = null)}
   title="删除 Provider"
-  description={`确定删除 ${deleteTarget?.name || ''}？其下模型会一并删除，引用它的 routing target 会阻止删除。`}
+  description={`确定删除 ${deleteTarget?.name || ''}？其下模型会一并删除，被虚拟模型的 target 引用时会阻止删除。`}
   busy={deleting}
   onconfirm={remove}
 />

@@ -23,7 +23,7 @@ type AttemptOutcome struct {
 }
 
 type AttemptLog struct {
-	Target     store.RouteTarget
+	Target     store.VirtualModelTarget
 	Attempt    int
 	Cycle      int
 	Latency    time.Duration
@@ -33,14 +33,14 @@ type AttemptLog struct {
 }
 
 type ExecutionResult struct {
-	Target       store.RouteTarget
+	Target       store.VirtualModelTarget
 	Attempts     []AttemptLog
 	FallbackUsed bool
 	Err          error
 	StatusCode   int
 }
 
-type Executor func(ctx context.Context, target store.RouteTarget) AttemptOutcome
+type Executor func(ctx context.Context, target store.VirtualModelTarget) AttemptOutcome
 
 type Runner struct {
 	Rand *rand.Rand
@@ -51,8 +51,8 @@ func NewRunner() *Runner {
 }
 
 // BuildRoutes separates enabled targets into healthy LBs and ordered fallbacks.
-func BuildRoutes(rule store.RoutingRule) (lb, fallback []store.RouteTarget) {
-	for _, t := range rule.Targets {
+func BuildRoutes(vm store.VirtualModel) (lb, fallback []store.VirtualModelTarget) {
+	for _, t := range vm.Targets {
 		if !t.Enabled {
 			continue
 		}
@@ -77,18 +77,18 @@ func BuildRoutes(rule store.RoutingRule) (lb, fallback []store.RouteTarget) {
 	return lb, fallback
 }
 
-// WeightedOrder returns a random weighted permutation of routes.
-func (r *Runner) WeightedOrder(routes []store.RouteTarget) []store.RouteTarget {
-	out := append([]store.RouteTarget(nil), routes...)
+// WeightedOrder returns a random weighted permutation of targets.
+func (r *Runner) WeightedOrder(targets []store.VirtualModelTarget) []store.VirtualModelTarget {
+	out := append([]store.VirtualModelTarget(nil), targets...)
 	if len(out) <= 1 {
 		return out
 	}
 	// Exponential race: key = -ln(U)/weight; smaller key wins.
 	type scored struct {
-		t   store.RouteTarget
+		t   store.VirtualModelTarget
 		key float64
 	}
-	scoredRoutes := make([]scored, 0, len(out))
+	scoredTargets := make([]scored, 0, len(out))
 	for _, t := range out {
 		w := float64(t.Weight)
 		if w <= 0 {
@@ -98,36 +98,36 @@ func (r *Runner) WeightedOrder(routes []store.RouteTarget) []store.RouteTarget {
 		if u <= 0 {
 			u = 1e-12
 		}
-		scoredRoutes = append(scoredRoutes, scored{t: t, key: -log(u) / w})
+		scoredTargets = append(scoredTargets, scored{t: t, key: -log(u) / w})
 	}
-	sort.SliceStable(scoredRoutes, func(i, j int) bool { return scoredRoutes[i].key < scoredRoutes[j].key })
-	for i := range scoredRoutes {
-		out[i] = scoredRoutes[i].t
+	sort.SliceStable(scoredTargets, func(i, j int) bool { return scoredTargets[i].key < scoredTargets[j].key })
+	for i := range scoredTargets {
+		out[i] = scoredTargets[i].t
 	}
 	return out
 }
 
 // Execute runs the configured retry and fallback policy.
-func (r *Runner) Execute(ctx context.Context, rule store.RoutingRule, exec Executor) ExecutionResult {
-	lb, fallback := BuildRoutes(rule)
+func (r *Runner) Execute(ctx context.Context, vm store.VirtualModel, exec Executor) ExecutionResult {
+	lb, fallback := BuildRoutes(vm)
 	res := ExecutionResult{StatusCode: 502}
 	if len(lb) == 0 && len(fallback) == 0 {
 		res.Err = ErrNoHealthyRoute
 		return res
 	}
 
-	retries := rule.RetryCount
+	retries := vm.RetryCount
 	if retries < 1 {
 		retries = 1
 	}
-	baseDelay := time.Duration(rule.RetryDelayMS) * time.Millisecond
-	maxBackoff := time.Duration(rule.MaxBackoffMS) * time.Millisecond
+	baseDelay := time.Duration(vm.RetryDelayMS) * time.Millisecond
+	maxBackoff := time.Duration(vm.MaxBackoffMS) * time.Millisecond
 	if maxBackoff <= 0 {
 		maxBackoff = 5 * time.Second
 	}
 
 	attemptNo := 0
-	runOne := func(t store.RouteTarget, cycle int, fallbackRoute bool) bool {
+	runOne := func(t store.VirtualModelTarget, cycle int, fallbackRoute bool) bool {
 		if err := ctx.Err(); err != nil {
 			res.Err = err
 			return true
@@ -167,7 +167,7 @@ func (r *Runner) Execute(ctx context.Context, rule store.RoutingRule, exec Execu
 			return
 		}
 		d := baseDelay
-		if rule.RetryPolicy == "exponential" && attempt > 1 {
+		if vm.RetryPolicy == "exponential" && attempt > 1 {
 			d = baseDelay * time.Duration(1<<min(attempt-1, 16))
 		}
 		if d > maxBackoff {
@@ -181,9 +181,9 @@ func (r *Runner) Execute(ctx context.Context, rule store.RoutingRule, exec Execu
 		}
 	}
 
-	switch rule.FallbackPolicy {
+	switch vm.FallbackPolicy {
 	case "retry-first":
-		all := append(append([]store.RouteTarget{}, r.WeightedOrder(lb)...), fallback...)
+		all := append(append([]store.VirtualModelTarget{}, r.WeightedOrder(lb)...), fallback...)
 		if len(lb) == 0 {
 			all = fallback
 		}

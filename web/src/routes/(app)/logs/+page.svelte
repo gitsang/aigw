@@ -350,7 +350,7 @@
           <Table.Head>Model</Table.Head>
           <Table.Head>ApiType</Table.Head>
           <Table.Head>调用方</Table.Head>
-          <Table.Head>Provider / Route</Table.Head>
+          <Table.Head>Provider / 虚拟模型</Table.Head>
           <Table.Head class="text-right">延迟</Table.Head>
           <Table.Head class="text-right">Tokens</Table.Head>
           <Table.Head class="text-right">成本</Table.Head>
@@ -405,7 +405,7 @@
               <Table.Cell class="max-w-[150px]">
                 <div class="truncate text-[11px]">{log.provider_name || '—'}</div>
                 <div class="truncate text-[10px] text-muted-foreground">
-                  {log.route_name || '—'}
+                  {log.virtual_model_name || '—'}
                   {#if log.fallback_used}<span class="text-amber-600 dark:text-amber-400">· fallback</span>{/if}
                 </div>
               </Table.Cell>

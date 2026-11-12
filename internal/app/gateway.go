@@ -69,7 +69,7 @@ func (a *App) Gateway(apiType string) http.HandlerFunc {
 		}
 		defer a.store.TouchAPIKey(context.Background(), apiKey.ID)
 
-		r.Body = http.MaxBytesReader(w, r.Body, a.cfg.Routing.MaxBodyBytes)
+		r.Body = http.MaxBytesReader(w, r.Body, a.cfg.Gateway.MaxBodyBytes)
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			writeGatewayError(w, apiType, http.StatusRequestEntityTooLarge, "invalid_request_error", "request body is too large or unreadable")
@@ -91,28 +91,28 @@ func (a *App) Gateway(apiType string) http.HandlerFunc {
 			return
 		}
 
-		rule, autoTarget, err := a.resolveRule(r.Context(), req.Model, apiType)
+		vm, autoTarget, err := a.resolveVirtualModel(r.Context(), req.Model, apiType)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				writeGatewayError(w, apiType, http.StatusNotFound, "model_not_found",
-					fmt.Sprintf("no routing rule or provider model matched %q", req.Model))
+					fmt.Sprintf("no virtual model or provider model matched %q", req.Model))
 				return
 			}
-			a.log.Error("load routing rule", "error", err)
-			writeGatewayError(w, apiType, http.StatusInternalServerError, "gateway_error", "failed to load routing rule")
+			a.log.Error("load virtual model", "error", err)
+			writeGatewayError(w, apiType, http.StatusInternalServerError, "gateway_error", "failed to load virtual model")
 			return
 		}
-		if autoTarget == nil && !contains(rule.APITypes, apiType) {
+		if autoTarget == nil && !contains(vm.APITypes, apiType) {
 			writeGatewayError(w, apiType, http.StatusBadRequest, "invalid_request_error",
 				fmt.Sprintf("model %q is not configured for API type %s", req.Model, apiType))
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(r.Context(), a.cfg.Routing.RequestTimeout)
+		ctx, cancel := context.WithTimeout(r.Context(), a.cfg.Gateway.RequestTimeout)
 		defer cancel()
 
 		state := &attemptState{}
-		result := a.runner.Execute(ctx, rule, func(execCtx context.Context, target store.RouteTarget) router.AttemptOutcome {
+		result := a.runner.Execute(ctx, vm, func(execCtx context.Context, target store.VirtualModelTarget) router.AttemptOutcome {
 			if autoTarget != nil {
 				return a.attemptResolved(execCtx, req, *autoTarget, state)
 			}
@@ -121,9 +121,9 @@ func (a *App) Gateway(apiType string) http.HandlerFunc {
 
 		logEntry := store.RequestLog{
 			RequestID: requestID, APIType: apiType, Model: req.Model, App: apiKey.App,
-			APIKeyName: apiKey.Name, RouteName: rule.Name, Stream: req.Stream,
+			APIKeyName: apiKey.Name, VirtualModelName: vm.Name, Stream: req.Stream,
 			AttemptCount: len(result.Attempts), FallbackUsed: result.FallbackUsed,
-			FallbackPolicy: rule.FallbackPolicy, RetryPolicy: rule.RetryPolicy,
+			FallbackPolicy: vm.FallbackPolicy, RetryPolicy: vm.RetryPolicy,
 			ClientIP: clientIP(r),
 		}
 		status := 0
@@ -178,7 +178,7 @@ func (a *App) Gateway(apiType string) http.HandlerFunc {
 		}
 
 		if req.Stream {
-			status = a.streamResponse(w, r, apiType, req, state, rule)
+			status = a.streamResponse(w, r, apiType, req, state, vm)
 			return
 		}
 		downstream, err := translate.BuildResponse(apiType, state.parsed, req.Model)
@@ -194,51 +194,52 @@ func (a *App) Gateway(apiType string) http.HandlerFunc {
 	}
 }
 
-// resolveRule loads the routing rule for a requested model. When no rule
-// matches, the optional auto model matching fallback dispatches the request to
-// the first provider model whose public id contains the requested name.
+// resolveVirtualModel loads the virtual model for a requested model name. When
+// none matches, the optional auto model matching fallback dispatches the request
+// to the first provider model whose public id contains the requested name.
 //
 // The returned autoTarget is non-nil only for an auto-matched model; in that
-// case the rule is a synthetic single-target rule carrying the same model name.
-func (a *App) resolveRule(ctx context.Context, model, inboundAPIType string) (store.RoutingRule, *store.RuntimeTarget, error) {
-	rule, err := a.store.GetRoutingRuleByModel(ctx, model)
+// case the virtual model is a synthetic single-target one carrying the same
+// model name.
+func (a *App) resolveVirtualModel(ctx context.Context, model, inboundAPIType string) (store.VirtualModel, *store.RuntimeTarget, error) {
+	vm, err := a.store.GetVirtualModelByModel(ctx, model)
 	if err == nil {
-		return rule, nil, nil
+		return vm, nil, nil
 	}
 	if !errors.Is(err, store.ErrNotFound) {
-		return store.RoutingRule{}, nil, err
+		return store.VirtualModel{}, nil, err
 	}
-	if !a.store.AutoRouteMatchEnabled(ctx) {
-		return store.RoutingRule{}, nil, err
+	if !a.store.AutoModelMatchEnabled(ctx) {
+		return store.VirtualModel{}, nil, err
 	}
 	match, err := a.store.MatchProviderModel(ctx, model)
 	if err != nil {
-		return store.RoutingRule{}, nil, err
+		return store.VirtualModel{}, nil, err
 	}
 	target, err := a.store.ResolveModelTarget(ctx, match.ProviderModelID, inboundAPIType)
 	if err != nil {
-		return store.RoutingRule{}, nil, err
+		return store.VirtualModel{}, nil, err
 	}
 	a.log.Info("auto matched model", "requested", model, "matched", match.ID(),
 		"provider", target.ProviderName)
-	return autoMatchRule(model, target), &target, nil
+	return autoMatchVirtualModel(model, target), &target, nil
 }
 
-// autoMatchRouteName labels the request log of an auto-matched dispatch.
-const autoMatchRouteName = "auto-match"
+// autoMatchModelName labels the request log of an auto-matched dispatch.
+const autoMatchModelName = "auto-match"
 
-// autoMatchRule wraps a resolved provider model in a single-target routing rule
-// so the existing retry/fallback runner can execute it unchanged.
-func autoMatchRule(model string, target store.RuntimeTarget) store.RoutingRule {
-	return store.RoutingRule{
-		Name:           autoMatchRouteName,
+// autoMatchVirtualModel wraps a resolved provider model in a single-target
+// virtual model so the existing retry/fallback runner can execute it unchanged.
+func autoMatchVirtualModel(model string, target store.RuntimeTarget) store.VirtualModel {
+	return store.VirtualModel{
+		Name:           autoMatchModelName,
 		VirtualModel:   model,
 		APITypes:       store.DefaultAPITypes(),
 		Enabled:        true,
 		RetryCount:     1,
 		RetryPolicy:    "fixed",
 		FallbackPolicy: "fallback-first",
-		Targets: []store.RouteTarget{{
+		Targets: []store.VirtualModelTarget{{
 			ID:            target.TargetID,
 			Role:          store.RoleLB,
 			ProviderID:    target.ProviderID,
@@ -250,7 +251,7 @@ func autoMatchRule(model string, target store.RuntimeTarget) store.RoutingRule {
 	}
 }
 
-func (a *App) attempt(ctx context.Context, req translate.Request, inboundAPIType string, target store.RouteTarget, state *attemptState) router.AttemptOutcome {
+func (a *App) attempt(ctx context.Context, req translate.Request, inboundAPIType string, target store.VirtualModelTarget, state *attemptState) router.AttemptOutcome {
 	runtimeTarget, err := a.store.ResolveTarget(ctx, target.ID, inboundAPIType)
 	if err != nil {
 		return router.AttemptOutcome{Retryable: true, StatusCode: http.StatusBadGateway, Err: fmt.Errorf("load target: %w", err)}
@@ -311,7 +312,7 @@ func (a *App) attemptResolved(ctx context.Context, req translate.Request, runtim
 	return router.AttemptOutcome{Success: true, StatusCode: http.StatusOK}
 }
 
-func (a *App) streamResponse(w http.ResponseWriter, r *http.Request, apiType string, req translate.Request, state *attemptState, rule store.RoutingRule) int {
+func (a *App) streamResponse(w http.ResponseWriter, r *http.Request, apiType string, req translate.Request, state *attemptState, vm store.VirtualModel) int {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeGatewayError(w, apiType, http.StatusInternalServerError, "gateway_error", "streaming is not supported by the server")
@@ -375,7 +376,7 @@ func (a *App) streamResponse(w http.ResponseWriter, r *http.Request, apiType str
 		}
 	}
 	state.usage = conv.Usage()
-	_ = rule
+	_ = vm
 	return status
 }
 
