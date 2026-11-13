@@ -94,7 +94,6 @@ type VirtualModelTarget struct {
 	ProviderBaseURL       string            `json:"provider_base_url,omitempty"`
 	ProviderModelID       string            `json:"provider_model_id,omitempty"`
 	UpstreamModel         string            `json:"upstream_model"`
-	APITypes              []string          `json:"api_types"`
 	SupportedAPITypes     []string          `json:"supported_api_types,omitempty"`
 	PathOverrides         map[string]string `json:"path_overrides,omitempty"`
 	ProviderAPITypes      []string          `json:"provider_api_types,omitempty"`
@@ -117,7 +116,6 @@ type VirtualModel struct {
 	ID             string               `json:"id"`
 	Name           string               `json:"name"`
 	VirtualModel   string               `json:"virtual_model"`
-	APITypes       []string             `json:"api_types"`
 	Enabled        bool                 `json:"enabled"`
 	RetryCount     int                  `json:"retry_count"`
 	RetryPolicy    string               `json:"retry_policy"`
@@ -132,7 +130,6 @@ type VirtualModel struct {
 type VirtualModelInput struct {
 	Name           string                    `json:"name"`
 	VirtualModel   string                    `json:"virtual_model"`
-	APITypes       []string                  `json:"api_types"`
 	Enabled        *bool                     `json:"enabled"`
 	RetryCount     int                       `json:"retry_count"`
 	RetryPolicy    string                    `json:"retry_policy"`
@@ -143,15 +140,14 @@ type VirtualModelInput struct {
 }
 
 type VirtualModelTargetInput struct {
-	ID              string   `json:"id,omitempty"`
-	Role            string   `json:"role"`
-	ProviderID      string   `json:"provider_id"`
-	ProviderModelID string   `json:"provider_model_id,omitempty"`
-	UpstreamModel   string   `json:"upstream_model"`
-	APITypes        []string `json:"api_types"`
-	Weight          int      `json:"weight"`
-	Priority        int      `json:"priority"`
-	Enabled         *bool    `json:"enabled"`
+	ID              string `json:"id,omitempty"`
+	Role            string `json:"role"`
+	ProviderID      string `json:"provider_id"`
+	ProviderModelID string `json:"provider_model_id,omitempty"`
+	UpstreamModel   string `json:"upstream_model"`
+	Weight          int    `json:"weight"`
+	Priority        int    `json:"priority"`
+	Enabled         *bool  `json:"enabled"`
 }
 
 // CostTier is a price bracket that applies once the request's input token

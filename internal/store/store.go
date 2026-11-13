@@ -455,7 +455,7 @@ func normalizeProxyType(v string) string {
 
 func (s *Store) ListVirtualModels(ctx context.Context) ([]VirtualModel, error) {
 	rows, err := s.pool.Query(ctx, `
-SELECT id, name, virtual_model, api_types, enabled, retry_count, retry_policy,
+SELECT id, name, virtual_model, enabled, retry_count, retry_policy,
        fallback_policy, retry_delay_ms, max_backoff_ms, created_at, updated_at
 FROM virtual_models ORDER BY created_at ASC`)
 	if err != nil {
@@ -479,14 +479,14 @@ FROM virtual_models ORDER BY created_at ASC`)
 
 func scanVirtualModel(row rowScanner) (VirtualModel, error) {
 	var r VirtualModel
-	err := row.Scan(&r.ID, &r.Name, &r.VirtualModel, &r.APITypes, &r.Enabled, &r.RetryCount,
+	err := row.Scan(&r.ID, &r.Name, &r.VirtualModel, &r.Enabled, &r.RetryCount,
 		&r.RetryPolicy, &r.FallbackPolicy, &r.RetryDelayMS, &r.MaxBackoffMS, &r.CreatedAt, &r.UpdatedAt)
 	return r, err
 }
 
 func (s *Store) GetVirtualModel(ctx context.Context, id string) (VirtualModel, error) {
 	row := s.pool.QueryRow(ctx, `
-SELECT id, name, virtual_model, api_types, enabled, retry_count, retry_policy,
+SELECT id, name, virtual_model, enabled, retry_count, retry_policy,
        fallback_policy, retry_delay_ms, max_backoff_ms, created_at, updated_at
 FROM virtual_models WHERE id=$1`, id)
 	r, err := scanVirtualModel(row)
@@ -502,7 +502,7 @@ FROM virtual_models WHERE id=$1`, id)
 
 func (s *Store) GetVirtualModelByModel(ctx context.Context, model string) (VirtualModel, error) {
 	row := s.pool.QueryRow(ctx, `
-SELECT id, name, virtual_model, api_types, enabled, retry_count, retry_policy,
+SELECT id, name, virtual_model, enabled, retry_count, retry_policy,
        fallback_policy, retry_delay_ms, max_backoff_ms, created_at, updated_at
 FROM virtual_models WHERE virtual_model=$1 AND enabled=TRUE`, model)
 	r, err := scanVirtualModel(row)
@@ -520,7 +520,7 @@ func (s *Store) loadTargets(ctx context.Context, virtualModelID string) ([]Virtu
 	rows, err := s.pool.Query(ctx, `
 SELECT t.id, t.virtual_model_id, t.role, t.provider_id, p.name, p.base_url,
        COALESCE(t.provider_model_id::text,''), COALESCE(pm.model_id,''), t.upstream_model,
-       t.api_types, t.weight, t.priority, t.enabled,
+       t.weight, t.priority, t.enabled,
        COALESCE(pm.api_types,'{}'::text[]), COALESCE(pm.path_overrides,'{}'::jsonb),
        p.api_types, p.path_overrides,
        COALESCE(h.healthy, TRUE), h.checked_at, COALESCE(h.latency_ms,0),
@@ -551,7 +551,7 @@ func scanTarget(row rowScanner) (VirtualModelTarget, error) {
 	h := TargetHealth{}
 	var modelOverrides, providerOverrides []byte
 	err := row.Scan(&t.ID, &t.VirtualModelID, &t.Role, &t.ProviderID, &t.ProviderName, &t.ProviderBaseURL,
-		&t.ProviderModelID, &t.UpstreamModel, &t.UpstreamModel, &t.APITypes,
+		&t.ProviderModelID, &t.UpstreamModel, &t.UpstreamModel,
 		&t.Weight, &t.Priority, &t.Enabled, &t.SupportedAPITypes, &modelOverrides,
 		&t.ProviderAPITypes, &providerOverrides,
 		&h.Healthy, &h.CheckedAt, &h.LatencyMS, &h.StatusCode, &h.Error)
@@ -564,6 +564,9 @@ func scanTarget(row rowScanner) (VirtualModelTarget, error) {
 	if len(providerOverrides) > 0 {
 		_ = json.Unmarshal(providerOverrides, &t.ProviderPathOverrides)
 	}
+	// Report the protocols the upstream can actually speak in the canonical
+	// fallback order, so the console shows the same order the gateway uses.
+	t.SupportedAPITypes = SupportedAPITypes(t.SupportedAPITypes, t.ProviderAPITypes)
 	t.Health = &h
 	return t, nil
 }
@@ -576,10 +579,10 @@ func (s *Store) CreateVirtualModel(ctx context.Context, in VirtualModelInput) (V
 	defer tx.Rollback(ctx)
 	var id string
 	err = tx.QueryRow(ctx, `
-INSERT INTO virtual_models (name, virtual_model, api_types, enabled, retry_count,
+INSERT INTO virtual_models (name, virtual_model, enabled, retry_count,
 retry_policy, fallback_policy, retry_delay_ms, max_backoff_ms)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-		in.Name, in.VirtualModel, normalizeAPITypes(in.APITypes), boolOr(in.Enabled, true),
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+		in.Name, in.VirtualModel, boolOr(in.Enabled, true),
 		normalizeProviderRetryCount(in.RetryCount), normalizeRetryPolicy(in.RetryPolicy),
 		normalizeFallbackPolicy(in.FallbackPolicy), normalizeDelay(in.RetryDelayMS, 250),
 		normalizeDelay(in.MaxBackoffMS, 5000)).Scan(&id)
@@ -602,10 +605,10 @@ func (s *Store) UpdateVirtualModel(ctx context.Context, id string, in VirtualMod
 	}
 	defer tx.Rollback(ctx)
 	cmd, err := tx.Exec(ctx, `
-UPDATE virtual_models SET name=$2, virtual_model=$3, api_types=$4, enabled=$5,
-retry_count=$6, retry_policy=$7, fallback_policy=$8, retry_delay_ms=$9, max_backoff_ms=$10
+UPDATE virtual_models SET name=$2, virtual_model=$3, enabled=$4,
+retry_count=$5, retry_policy=$6, fallback_policy=$7, retry_delay_ms=$8, max_backoff_ms=$9
 WHERE id=$1`,
-		id, in.Name, in.VirtualModel, normalizeAPITypes(in.APITypes), boolOr(in.Enabled, true),
+		id, in.Name, in.VirtualModel, boolOr(in.Enabled, true),
 		normalizeProviderRetryCount(in.RetryCount), normalizeRetryPolicy(in.RetryPolicy),
 		normalizeFallbackPolicy(in.FallbackPolicy), normalizeDelay(in.RetryDelayMS, 250),
 		normalizeDelay(in.MaxBackoffMS, 5000))
@@ -649,21 +652,15 @@ SELECT provider_id::text, model_id FROM provider_models WHERE id=$1`,
 			modelID = &id
 			upstreamModel = modelName
 		}
-		apiTypes := NormalizeOrderedAPITypes(t.APITypes)
-		for _, at := range apiTypes {
-			if !IsSupportedAPIType(at) {
-				return fmt.Errorf("unsupported api type %q", at)
-			}
-		}
 		weight := t.Weight
 		if weight <= 0 {
 			weight = 100
 		}
 		if _, err := tx.Exec(ctx, `
-INSERT INTO virtual_model_targets (virtual_model_id, role, provider_id, provider_model_id, upstream_model, api_types,
+INSERT INTO virtual_model_targets (virtual_model_id, role, provider_id, provider_model_id, upstream_model,
 weight, priority, enabled)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-			virtualModelID, role, t.ProviderID, modelID, upstreamModel, apiTypes, weight, t.Priority,
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+			virtualModelID, role, t.ProviderID, modelID, upstreamModel, weight, t.Priority,
 			boolOr(t.Enabled, true)); err != nil {
 			return err
 		}
@@ -700,22 +697,6 @@ func normalizeAPIType(v string) string {
 	default:
 		return APIChatCompletions
 	}
-}
-
-func normalizeAPITypes(v []string) []string {
-	if len(v) == 0 {
-		return []string{APIChatCompletions, APIResponses, APIMessages}
-	}
-	seen := map[string]bool{}
-	out := make([]string, 0, len(v))
-	for _, item := range v {
-		item = normalizeAPIType(item)
-		if !seen[item] {
-			seen[item] = true
-			out = append(out, item)
-		}
-	}
-	return out
 }
 
 // normalizeAPITypesOrEmpty dedupes while preserving "unset" (empty) semantics,
@@ -768,7 +749,7 @@ func (s *Store) ListHealthProbeTargets(ctx context.Context) ([]HealthProbeTarget
 	rows, err := s.pool.Query(ctx, `
 SELECT t.id, p.id, p.name, p.base_url, p.auth_type, p.api_key_ciphertext, p.headers,
        t.upstream_model,
-       t.api_types, p.api_types, p.path_overrides,
+       p.api_types, p.path_overrides,
        COALESCE(pm.model_id,''), COALESCE(pm.api_types,'{}'::text[]),
        COALESCE(pm.path_overrides,'{}'::jsonb),
        p.proxy_type, p.proxy_url, p.proxy_username, p.proxy_password_ciphertext
@@ -785,7 +766,7 @@ WHERE t.enabled=TRUE AND p.enabled=TRUE AND (t.provider_model_id IS NULL OR pm.e
 		var t HealthProbeTarget
 		var ct string
 		var headers []byte
-		var targetTypes, providerTypes []string
+		var providerTypes []string
 		var providerOverridesRaw []byte
 		var modelID string
 		var modelTypes []string
@@ -793,7 +774,7 @@ WHERE t.enabled=TRUE AND p.enabled=TRUE AND (t.provider_model_id IS NULL OR pm.e
 		var proxyCT string
 		if err := rows.Scan(&t.TargetID, &t.ProviderID, &t.ProviderName, &t.BaseURL, &t.AuthType,
 			&ct, &headers,
-			&t.UpstreamModel, &targetTypes, &providerTypes, &providerOverridesRaw,
+			&t.UpstreamModel, &providerTypes, &providerOverridesRaw,
 			&modelID, &modelTypes, &modelOverridesRaw,
 			&t.Proxy.Type, &t.Proxy.URL, &t.Proxy.Username, &proxyCT); err != nil {
 			return nil, err
@@ -816,7 +797,7 @@ WHERE t.enabled=TRUE AND p.enabled=TRUE AND (t.provider_model_id IS NULL OR pm.e
 		if modelID != "" {
 			t.UpstreamModel = modelID
 		}
-		t.APIType = ChooseAPIType(targetTypes, modelTypes, providerTypes, "")
+		t.APIType = ChooseUpstreamAPIType(modelTypes, providerTypes, "")
 		t.UpstreamPath = ResolvePath(modelOverrides, providerOverrides, t.APIType)
 		out = append(out, t)
 	}

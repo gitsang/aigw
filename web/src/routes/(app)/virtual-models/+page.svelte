@@ -9,14 +9,11 @@
   import RouteIcon from '@lucide/svelte/icons/route';
   import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
   import CheckIcon from '@lucide/svelte/icons/check';
-  import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
-  import XIcon from '@lucide/svelte/icons/x';
 
   import * as Card from '$lib/components/ui/card/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
-  import { Checkbox } from '$lib/components/ui/checkbox/index.js';
   import { Switch } from '$lib/components/ui/switch/index.js';
   import * as Select from '$lib/components/ui/select/index.js';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
@@ -43,7 +40,6 @@
     provider_id: '',
     provider_model_id: '',
     upstream_model: '',
-    api_types: APIS.map(([value]) => value),
     weight: 50,
     priority: 0,
     enabled: true
@@ -51,7 +47,6 @@
   const blankVirtualModel = () => ({
     name: '',
     virtual_model: '',
-    api_types: APIS.map(([value]) => value),
     enabled: true,
     retry_count: 3,
     retry_policy: 'exponential',
@@ -110,7 +105,6 @@
     form = {
       name: vm.name,
       virtual_model: vm.virtual_model,
-      api_types: [...vm.api_types],
       enabled: vm.enabled,
       retry_count: vm.retry_count,
       retry_policy: vm.retry_policy,
@@ -123,7 +117,6 @@
         provider_id: target.provider_id,
         provider_model_id: target.provider_model_id || '',
         upstream_model: target.upstream_model,
-        api_types: [...(target.api_types || [])],
         weight: target.weight,
         priority: target.priority,
         enabled: target.enabled
@@ -147,12 +140,6 @@
 
   function removeTarget(index) {
     form.targets = form.targets.filter((_, i) => i !== index);
-  }
-
-  function toggleApi(value) {
-    form.api_types = form.api_types.includes(value)
-      ? form.api_types.filter((v) => v !== value)
-      : [...form.api_types, value];
   }
 
   async function ensureModels(providerID) {
@@ -182,17 +169,15 @@
       i === index ? { ...target, ...patch } : target
     );
   }
-  function toggleTargetProtocol(index, name) {
-    const target = form.targets[index];
-    const next = target.api_types.includes(name)
-      ? target.api_types.filter((value) => value !== name)
-      : [...target.api_types, name];
-    updateTarget(index, { api_types: next });
-  }
-  function protocolOrderText(target) {
-    return target.api_types.length
-      ? target.api_types.map(apiLabel).join(' → ')
-      : '未选择（继承模型/Provider）';
+  /** Protocols the selected upstream model (or its provider) can speak, in the
+   * fixed order chat.completions → responses → messages. This is read-only: a
+   * target always forwards the inbound protocol when the upstream supports it
+   * and otherwise falls back to the first entry of this list. */
+  function supportedProtocols(target) {
+    const model = modelOf(target);
+    const provider = providerOf(target);
+    const declared = model?.api_types?.length ? model.api_types : provider?.api_types || [];
+    return APIS.map(([value]) => value).filter((value) => declared.includes(value));
   }
   function targetPathHint(target) {
     const model = modelOf(target);
@@ -206,28 +191,13 @@
     }
     return parts.length ? parts.join('  ') : '内置默认 Path';
   }
-  function availableProtocols(target) {
-    const model = modelOf(target);
-    const provider = providerOf(target);
-    if (model?.api_types?.length) return model.api_types;
-    if (provider?.api_types?.length) return provider.api_types;
-    return APIS.map(([value]) => value);
-  }
-  function resetTargetProtocols(index) {
-    updateTarget(index, { api_types: [...availableProtocols(form.targets[index])] });
-  }
-
   async function onProviderChange(index) {
-    updateTarget(index, { provider_model_id: '', upstream_model: '', api_types: [] });
+    updateTarget(index, { provider_model_id: '', upstream_model: '' });
     const target = form.targets[index];
     const list = await ensureModels(target.provider_id);
     const next = { ...form.targets[index] };
     if (list.length) next.provider_model_id = list[0].id;
-    next.api_types = [...availableProtocols(next)];
     updateTarget(index, next);
-  }
-  function onModelChange(index) {
-    updateTarget(index, { api_types: [...availableProtocols(form.targets[index])] });
   }
 
   async function save() {
@@ -347,11 +317,6 @@
               <div class="text-[11px] text-muted-foreground">
                 {vm.name} · {vm.retry_delay_ms}ms base / {vm.max_backoff_ms}ms max backoff
               </div>
-              <div class="flex flex-wrap gap-1">
-                {#each vm.api_types as type (type)}
-                  <StatusBadge tone="info">{apiLabel(type)}</StatusBadge>
-                {/each}
-              </div>
             </div>
             <div class="flex shrink-0 items-center gap-1">
               <Button variant="outline" size="sm" onclick={() => openEdit(vm)}>
@@ -379,7 +344,7 @@
               >
                 <span>角色</span>
                 <span>Provider / Upstream</span>
-                <span>接口顺序</span>
+                <span>上游协议</span>
                 <span class="text-right">权重</span>
                 <span>健康</span>
               </div>
@@ -401,7 +366,9 @@
                   </div>
                   <div class="min-w-0">
                     <div class="truncate font-mono text-[10.5px]">
-                      {target.api_types?.length ? target.api_types.map(apiLabel).join(' → ') : '继承'}
+                      {target.supported_api_types?.length
+                        ? target.supported_api_types.map(apiLabel).join(' · ')
+                        : '继承模型 / Provider'}
                     </div>
                     <div class="truncate text-[10px] text-muted-foreground">
                       {target.path_overrides && Object.keys(target.path_overrides).length
@@ -477,18 +444,6 @@
       </div>
     </div>
 
-    <div class="space-y-2 rounded-lg border bg-muted/40 p-3">
-      <span class="text-xs font-medium">支持的入口 API</span>
-      <div class="flex flex-wrap gap-4">
-        {#each APIS as [value, label] (value)}
-          <label class="flex items-center gap-1.5 text-xs">
-            <Checkbox checked={form.api_types.includes(value)} onCheckedChange={() => toggleApi(value)} />
-            <span class="font-mono">{label}</span>
-          </label>
-        {/each}
-      </div>
-    </div>
-
     <div class="grid gap-3 sm:grid-cols-2">
       <div class="grid gap-1.5 sm:col-span-2">
         <Label for="r-fallback">Fallback 策略</Label>
@@ -549,8 +504,9 @@
         <div>
           <h3 class="text-xs font-semibold">Targets</h3>
           <p class="mt-0.5 text-[10.5px] leading-relaxed text-muted-foreground">
-            每个 target 可配置多个<b class="text-foreground">上游协议</b>并按顺序排列：入口协议在列表中时直接使用，
-            否则使用第一个协议并自动转换。Path 由模型 / Provider 配置决定。
+            每个 target 不需要选择上游协议：入口请求按<b class="text-foreground">原协议</b>转发，
+            上游不支持时按 <span class="font-mono">chat.completions → responses → messages</span>
+            的固定顺序取第一个可用协议并自动转换。协议由所选模型 / Provider 的配置决定，Path 同源。
           </p>
         </div>
         <div class="flex items-center gap-1.5">
@@ -621,7 +577,6 @@
               <Select.Root
                 type="single"
                 bind:value={target.provider_model_id}
-                onValueChange={() => onModelChange(index)}
               >
                 <Select.Trigger class="w-full" id={`t-model-${index}`}>
                   <Select.Value placeholder="选择模型…" />
@@ -639,53 +594,21 @@
             </div>
           </div>
 
-          <div class="space-y-1.5">
-            <div class="flex flex-wrap items-center gap-1">
+          <div class="space-y-1">
+            <div class="flex flex-wrap items-center gap-1.5">
               <span class="text-[10px] uppercase tracking-wide text-muted-foreground">
-                上游协议顺序
+                上游协议
               </span>
-              {#each target.api_types as name (name)}
-                <button
-                  type="button"
-                  class="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary transition-colors hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
-                  onclick={() => toggleTargetProtocol(index, name)}
-                  title="点击移除"
-                >
-                  {apiLabel(name)}
-                  <span
-                    class="grid size-3 place-items-center rounded-full bg-primary text-[8px] text-primary-foreground"
-                  >
-                    {target.api_types.indexOf(name) + 1}
-                  </span>
-                  <XIcon class="size-2.5" />
-                </button>
+              {#each supportedProtocols(target) as name, i (name)}
+                <StatusBadge tone={i === 0 ? 'info' : 'neutral'}>{apiLabel(name)}</StatusBadge>
               {/each}
-              {#if !target.api_types.length}
-                <span class="text-[10px] text-amber-600 dark:text-amber-400">未选择</span>
+              {#if !supportedProtocols(target).length}
+                <span class="text-[10px] text-muted-foreground">继承模型 / Provider</span>
               {/if}
-
-              {#each APIS as [value, label] (value)}
-                {#if !target.api_types.includes(value)}
-                  <button
-                    type="button"
-                    class="rounded-full border border-dashed px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
-                    onclick={() => toggleTargetProtocol(index, value)}
-                  >
-                    + {label}
-                  </button>
-                {/if}
-              {/each}
-              <button
-                type="button"
-                class="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
-                onclick={() => resetTargetProtocols(index)}
-              >
-                <RotateCcwIcon class="size-2.5" />
-                重置
-              </button>
+              <span class="text-[10px] text-muted-foreground">（自动，无需配置）</span>
             </div>
             <div class="truncate font-mono text-[10px] text-muted-foreground">
-              顺序：{protocolOrderText(target)} · Path: {targetPathHint(target)}
+              Path: {targetPathHint(target)}
             </div>
             {#if target.provider_id && !modelsFor(target.provider_id).length}
               <div class="text-[10px] text-amber-600 dark:text-amber-400">

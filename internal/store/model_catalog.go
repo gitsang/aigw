@@ -100,9 +100,24 @@ func (s *Store) ListModelCatalog(ctx context.Context) ([]ModelEntry, error) {
 }
 
 func (s *Store) listVirtualModelEntries(ctx context.Context) ([]ModelEntry, error) {
+	// A virtual model no longer declares entry protocols of its own: whatever a
+	// client sends is accepted, and each target negotiates its upstream
+	// protocol. The catalog therefore reports the union of the protocols its
+	// enabled targets can speak, in canonical order.
 	rows, err := s.pool.Query(ctx, `
-SELECT r.id, r.name, r.virtual_model, r.api_types, r.enabled, r.created_at,
-       (SELECT COUNT(*) FROM virtual_model_targets t WHERE t.virtual_model_id = r.id)
+SELECT r.id, r.name, r.virtual_model, r.enabled, r.created_at,
+       (SELECT COUNT(*) FROM virtual_model_targets t WHERE t.virtual_model_id = r.id),
+       COALESCE((
+           SELECT array_agg(DISTINCT at)
+           FROM virtual_model_targets t
+           JOIN providers p ON p.id = t.provider_id
+           LEFT JOIN provider_models pm ON pm.id = t.provider_model_id,
+           unnest(COALESCE(NULLIF(pm.api_types, '{}'::TEXT[]),
+                           NULLIF(p.api_types, '{}'::TEXT[]),
+                           ARRAY['chat.completions','responses','messages']::TEXT[])) AS at
+           WHERE t.virtual_model_id = r.id AND t.enabled = TRUE AND p.enabled = TRUE
+             AND (t.provider_model_id IS NULL OR pm.enabled = TRUE)
+       ), '{}'::TEXT[])
 FROM virtual_models r ORDER BY r.created_at ASC, r.virtual_model ASC`)
 	if err != nil {
 		return nil, err
@@ -111,13 +126,12 @@ FROM virtual_models r ORDER BY r.created_at ASC, r.virtual_model ASC`)
 	out := make([]ModelEntry, 0)
 	for rows.Next() {
 		e := ModelEntry{Kind: ModelKindVirtualModel}
-		if err := rows.Scan(&e.VirtualModelID, &e.VirtualModelName, &e.ID, &e.APITypes, &e.Enabled,
-			&e.CreatedAt, &e.TargetCount); err != nil {
+		var types []string
+		if err := rows.Scan(&e.VirtualModelID, &e.VirtualModelName, &e.ID, &e.Enabled,
+			&e.CreatedAt, &e.TargetCount, &types); err != nil {
 			return nil, err
 		}
-		if e.APITypes == nil {
-			e.APITypes = []string{}
-		}
+		e.APITypes = CanonicalAPITypes(types)
 		e.Name = e.ID
 		out = append(out, e)
 	}
@@ -313,7 +327,7 @@ WHERE pm.id = $1 AND pm.enabled = TRUE AND p.enabled = TRUE`, providerModelID).S
 	t.Role = RoleLB
 	t.Weight = 100
 	t.UpstreamModel = modelID
-	t.APIType = ChooseAPIType(nil, modelTypes, providerTypes, inboundAPIType)
+	t.APIType = ChooseUpstreamAPIType(modelTypes, providerTypes, inboundAPIType)
 	t.UpstreamPath = ResolvePath(modelOverrides, providerOverrides, t.APIType)
 	return t, nil
 }

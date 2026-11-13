@@ -19,67 +19,61 @@ func IsSupportedAPIType(name string) bool {
 }
 
 // DefaultAPITypes is the built-in protocol list used when a provider has not
-// configured its own list.
+// configured its own list, in canonical preference order.
 func DefaultAPITypes() []string {
 	return []string{APIChatCompletions, APIResponses, APIMessages}
 }
 
-// ChooseAPIType picks the upstream protocol for an inbound request.
+// CanonicalAPITypes returns the unique protocols of v in the canonical
+// preference order chat.completions → responses → messages. It is used wherever
+// protocols are displayed or compared, so the console never depends on the
+// order a provider list happened to be saved in.
+func CanonicalAPITypes(v []string) []string {
+	seen := map[string]bool{}
+	for _, item := range v {
+		seen[normalizeAPIType(item)] = true
+	}
+	out := make([]string, 0, len(seen))
+	for _, name := range DefaultAPITypes() {
+		if seen[name] {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// SupportedAPITypes is the protocol list a provider model can speak.
 //
-// Precedence of the supported-protocol list:
-//
-//	target protocols > model protocols > provider protocols > built-in defaults.
-//
-// The target list may restrict the available protocols; it is intersected with
-// the model/provider supported list while preserving the target's configured
-// order. If the inbound protocol is in the resulting list it is used directly
-// (no translation); otherwise the first configured protocol wins.
-func ChooseAPIType(targetTypes, modelTypes, providerTypes []string, inbound string) string {
+// Precedence: model protocols > provider protocols > built-in defaults.
+func SupportedAPITypes(modelTypes, providerTypes []string) []string {
 	available := modelTypes
 	if len(available) == 0 {
 		available = providerTypes
 	}
 	if len(available) == 0 {
-		available = DefaultAPITypes()
+		return DefaultAPITypes()
 	}
-	pool := available
-	if len(targetTypes) > 0 {
-		allowed := map[string]bool{}
-		for _, t := range available {
-			allowed[t] = true
-		}
-		filtered := make([]string, 0, len(targetTypes))
-		for _, t := range targetTypes {
-			if allowed[t] {
-				filtered = append(filtered, t)
-			}
-		}
-		if len(filtered) > 0 {
-			pool = filtered
-		}
-	}
+	return CanonicalAPITypes(available)
+}
+
+// ChooseUpstreamAPIType picks the upstream protocol for an inbound request.
+//
+// The upstream protocol is not configurable per target: an inbound request is
+// forwarded with the protocol it arrived on whenever the upstream speaks it.
+// Otherwise the gateway falls back in the fixed order chat.completions →
+// responses → messages and takes the first protocol the upstream supports,
+// translating the payload as needed. An empty inbound protocol (used by the
+// health prober) takes the first supported protocol of that same order.
+func ChooseUpstreamAPIType(modelTypes, providerTypes []string, inbound string) string {
+	supported := SupportedAPITypes(modelTypes, providerTypes)
 	if inbound != "" {
-		for _, name := range pool {
+		for _, name := range supported {
 			if name == inbound {
 				return inbound
 			}
 		}
 	}
-	return pool[0]
-}
-
-// NormalizeOrderedAPITypes dedupes protocols while preserving caller order.
-func NormalizeOrderedAPITypes(v []string) []string {
-	seen := map[string]bool{}
-	out := make([]string, 0, len(v))
-	for _, item := range v {
-		item = normalizeAPIType(item)
-		if !seen[item] {
-			seen[item] = true
-			out = append(out, item)
-		}
-	}
-	return out
+	return supported[0]
 }
 
 // ResolvePath returns the effective upstream path for a protocol.
@@ -370,7 +364,7 @@ func (s *Store) ResolveTarget(ctx context.Context, targetID, inboundAPIType stri
 	var t RuntimeTarget
 	var ct, proxyCT string
 	var headers []byte
-	var targetTypes, providerTypes []string
+	var providerTypes []string
 	var providerOverridesRaw []byte
 	var modelID string
 	var modelTypes []string
@@ -378,7 +372,7 @@ func (s *Store) ResolveTarget(ctx context.Context, targetID, inboundAPIType stri
 	var tiersRaw []byte
 	err := s.pool.QueryRow(ctx, `
 SELECT t.id, t.virtual_model_id, t.role, p.id, p.name, p.base_url, p.auth_type,
-       p.api_key_ciphertext, p.headers, p.timeout_ms, t.upstream_model, t.api_types,
+       p.api_key_ciphertext, p.headers, p.timeout_ms, t.upstream_model,
        t.weight, t.priority,
        COALESCE(pm.cost_currency,'USD'), COALESCE(pm.cost_input,0)::float8,
        COALESCE(pm.cost_output,0)::float8, COALESCE(pm.cost_cache_read,0)::float8,
@@ -395,7 +389,7 @@ LEFT JOIN provider_models pm ON pm.id=t.provider_model_id
 WHERE t.id=$1 AND t.enabled=TRUE AND p.enabled=TRUE
   AND (t.provider_model_id IS NULL OR pm.enabled=TRUE)`, targetID).Scan(
 		&t.TargetID, &t.VirtualModelID, &t.Role, &t.ProviderID, &t.ProviderName, &t.BaseURL,
-		&t.AuthType, &ct, &headers, &t.TimeoutMS, &t.UpstreamModel, &targetTypes,
+		&t.AuthType, &ct, &headers, &t.TimeoutMS, &t.UpstreamModel,
 		&t.Weight, &t.Priority,
 		&t.Cost.Currency, &t.Cost.Input, &t.Cost.Output,
 		&t.Cost.CacheRead, &t.Cost.CacheWrite, &tiersRaw,
@@ -432,7 +426,7 @@ WHERE t.id=$1 AND t.enabled=TRUE AND p.enabled=TRUE
 	if modelID != "" {
 		t.UpstreamModel = modelID
 	}
-	t.APIType = ChooseAPIType(targetTypes, modelTypes, providerTypes, inboundAPIType)
+	t.APIType = ChooseUpstreamAPIType(modelTypes, providerTypes, inboundAPIType)
 	t.UpstreamPath = ResolvePath(modelOverrides, providerOverrides, t.APIType)
 	return t, nil
 }

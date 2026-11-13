@@ -81,7 +81,6 @@ CREATE TABLE IF NOT EXISTS virtual_models (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     virtual_model TEXT NOT NULL UNIQUE,
-    api_types TEXT[] NOT NULL DEFAULT ARRAY['chat.completions','responses','messages']::TEXT[],
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     retry_count INTEGER NOT NULL DEFAULT 3 CHECK (retry_count BETWEEN 1 AND 20),
     retry_policy TEXT NOT NULL DEFAULT 'exponential' CHECK (retry_policy IN ('fixed', 'exponential')),
@@ -98,7 +97,6 @@ CREATE TABLE IF NOT EXISTS virtual_model_targets (
     role TEXT NOT NULL DEFAULT 'lb' CHECK (role IN ('lb', 'fallback')),
     provider_id UUID NOT NULL REFERENCES providers(id) ON DELETE RESTRICT,
     upstream_model TEXT NOT NULL,
-    api_types TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
     weight INTEGER NOT NULL DEFAULT 100 CHECK (weight > 0),
     priority INTEGER NOT NULL DEFAULT 0,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
@@ -179,10 +177,14 @@ CREATE INDEX IF NOT EXISTS idx_provider_models_provider_id ON provider_models(pr
 
 ALTER TABLE virtual_model_targets
     ADD COLUMN IF NOT EXISTS provider_model_id UUID REFERENCES provider_models(id) ON DELETE SET NULL;
-ALTER TABLE virtual_model_targets
-    ADD COLUMN IF NOT EXISTS api_types TEXT[] NOT NULL DEFAULT '{}'::TEXT[];
 ALTER TABLE virtual_model_targets DROP COLUMN IF EXISTS api_type;
+ALTER TABLE virtual_model_targets DROP COLUMN IF EXISTS api_types;
 ALTER TABLE virtual_model_targets DROP COLUMN IF EXISTS upstream_path;
+
+-- A virtual model accepts every entry protocol: the inbound protocol is always
+-- forwarded as-is, and each target negotiates its own upstream protocol. The
+-- per-virtual-model entry protocol allow-list is therefore gone.
+ALTER TABLE virtual_models DROP COLUMN IF EXISTS api_types;
 
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS TRIGGER AS $$
 BEGIN

@@ -14,9 +14,11 @@ checks, retries/fallbacks, and a SvelteKit management console.
   - `POST /v1/responses` (OpenAI Responses)
   - `POST /v1/messages` and `POST /messages` (Anthropic Messages)
 - **Bidirectional protocol translation**
-  - Every inbound API type can be routed to any configured upstream API type —
+  - Every inbound protocol can be routed to any supported upstream protocol —
     request bodies, non-streaming responses and SSE streams are converted through
-    a provider-neutral IR.
+    a provider-neutral IR. An inbound protocol the upstream speaks is forwarded
+    untouched; otherwise the gateway falls back to `chat.completions`, `responses`,
+    then `messages`.
 - **Model routing**
   - Virtual model names map to a configurable set of targets (edited on the
     console's **Virtual Model** page).
@@ -53,7 +55,7 @@ checks, retries/fallbacks, and a SvelteKit management console.
 - **Cost accounting** — pricing is per model (input/output per 1M tokens); each log
   row stores computed cost based on the model actually used.
 - **Observability**
-  - Full request log: time, ApiType, model, upstream model, app, API key name,
+  - Full request log: time, entry protocol, model, upstream model, app, API key name,
     provider, virtual model, status, latency, prompt/completion/total tokens, cost,
     stream flag, attempt count, fallback used, retry/fallback policy, error, client IP.
   - Dashboard: request counts, success rate, avg/P95 latency, token totals, cost,
@@ -188,47 +190,54 @@ cross-protocol streaming conversion.
 
 ## Provider configuration → models → virtual models
 
-Protocol configuration is **per provider**, not global:
+An **upstream protocol** (the `api_types` field in the API) is one of
+`chat.completions`, `responses` or `messages` — the request/response schema an
+upstream speaks. It is configured **per provider and per model**, never per
+target and never per virtual model:
 
-1. **Provider level** — each provider declares which upstream API types it supports
+1. **Provider level** — each provider declares which upstream protocols it supports
    (`chat.completions`, `responses`, `messages`) and an optional default path per
-   API type. Empty list means the built-in defaults (all three).
+   protocol. Empty list means the built-in defaults (all three).
 2. **Model level** — models exist only under a provider. They can be pulled from the
    provider's OpenAI-compatible `GET /models` endpoint or added manually. Every model
-   may override the provider's API types, add a path override per API type, and
+   may override the provider's protocols, add a path override per protocol, and
    carries its own **input/output price per 1M tokens** used for cost accounting.
 3. **Virtual model** — the console's **Virtual Model** page edits a virtual model:
-   a public model name (what clients send) plus its target set (provider + one of
-   its models, role and weight) and its retry/fallback settings. Protocol and path
-   are resolved automatically.
+   a virtual model ID (what clients send as `model`) plus its target set (provider +
+   one of its models, role and weight) and its retry/fallback settings. A virtual
+   model accepts **every** entry protocol; nothing about protocols is configured
+   there.
 
 Resolution rules for an inbound request:
 
-- API type precedence: target protocols > model protocols > provider protocols >
-  built-in defaults.
-- Each target has an **ordered multi-select of upstream protocols**
-  (e.g. `Responses → Chat Completions`). The target list can restrict the
-  protocols made available by the model/provider.
-- If the inbound protocol is present in the resolved target list it is used
-  directly (no translation). Otherwise the **first protocol in the target's
-  configured order** is used and the request/response/stream is translated.
+- A target always speaks the protocols its model/provider supports, resolved as
+  `model protocols > provider protocols > built-in defaults`.
+- **The inbound protocol is forwarded as-is** whenever that upstream supports it —
+  no translation happens in the common case.
+- If the upstream does not support it, the gateway falls back in the fixed order
+  **`chat.completions` → `responses` → `messages`** and takes the first protocol
+  the upstream supports, translating the request/response/stream as needed.
 - Path precedence: model path override > provider path override > built-in
-  default. Targets no longer carry a path field.
-- Health probes use the same resolved protocol/path.
+  default. Targets do not carry a path or protocol field.
+- Health probes use the same resolved protocol/path (an empty inbound protocol
+  resolves to the first supported protocol in the order above).
 - Auto model matching (Settings page) resolves a request model that has no
   virtual model to the first provider model whose `{providerId}/{modelId}` id
   contains the requested name, case-insensitively; the matched model only
-  contributes its provider settings (protocol list comes from the model/provider
-  and the first matching protocol is used).
+  contributes its provider/model settings and uses the same inbound-protocol-first
+  resolution.
 
-Example: a virtual model accepts all three entry APIs and a target lists
-`Responses, Chat Completions`.
+Example: two targets whose upstreams support `chat.completions + responses`
+(provider1) and `responses + messages` (provider2).
 
-| Inbound | Upstream protocol |
-| --- | --- |
-| Chat Completions | Chat Completions (exact match) |
-| Responses | Responses (exact match) |
-| Messages | Responses (first configured, translated) |
+| Inbound | provider1 target | provider2 target |
+| --- | --- | --- |
+| Chat Completions | Chat Completions (exact match) | Responses (translated) |
+| Responses | Responses (exact match) | Responses (exact match) |
+| Messages | `responses` (translated) | Messages (exact match) |
+
+Streaming is a request-body flag (`"stream": true`), not a separate protocol: it
+is never part of `api_types`.
 
 ### Model pricing from models.dev
 

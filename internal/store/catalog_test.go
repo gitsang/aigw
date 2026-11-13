@@ -2,59 +2,65 @@ package store
 
 import "testing"
 
-func TestChooseAPITypeOrdering(t *testing.T) {
-	all := DefaultAPITypes()
+func TestChooseUpstreamAPIType(t *testing.T) {
 	tests := []struct {
 		name          string
-		targetTypes   []string
 		modelTypes    []string
 		providerTypes []string
 		inbound       string
 		want          string
 	}{
 		{
-			name:          "target order wins when inbound unsupported",
-			targetTypes:   []string{APIResponses, APIChatCompletions},
-			providerTypes: all, inbound: APIMessages, want: APIResponses,
+			name:          "inbound protocol is forwarded as-is when supported",
+			providerTypes: DefaultAPITypes(), inbound: APIMessages, want: APIMessages,
 		},
 		{
-			name:          "inbound match inside target list",
-			targetTypes:   []string{APIResponses, APIChatCompletions},
-			providerTypes: all, inbound: APIChatCompletions, want: APIChatCompletions,
+			name:          "inbound responses is forwarded as-is",
+			providerTypes: DefaultAPITypes(), inbound: APIResponses, want: APIResponses,
 		},
 		{
-			name:          "inbound responses matches target",
-			targetTypes:   []string{APIResponses, APIChatCompletions},
-			providerTypes: all, inbound: APIResponses, want: APIResponses,
+			name:          "unsupported inbound falls back to chat.completions first",
+			providerTypes: DefaultAPITypes(), inbound: "", want: APIChatCompletions,
 		},
 		{
-			name:        "model support filters target list",
-			targetTypes: []string{APIChatCompletions, APIMessages},
-			modelTypes:  []string{APIMessages}, inbound: APIChatCompletions, want: APIMessages,
+			name:          "provider without chat.completions falls back to responses",
+			providerTypes: []string{APIMessages, APIResponses}, inbound: APIChatCompletions, want: APIResponses,
 		},
 		{
-			name:        "empty target inherits model order",
-			targetTypes: nil, modelTypes: []string{APIResponses, APIMessages}, inbound: APIChatCompletions, want: APIResponses,
+			name:          "provider with only messages routes there",
+			providerTypes: []string{APIMessages}, inbound: APIResponses, want: APIMessages,
 		},
 		{
-			name:        "empty target inherits provider order",
-			targetTypes: nil, providerTypes: []string{APIMessages, APIChatCompletions}, inbound: APIChatCompletions, want: APIChatCompletions,
+			name:       "model protocols win over provider protocols",
+			modelTypes: []string{APIMessages}, providerTypes: DefaultAPITypes(), inbound: APIChatCompletions, want: APIMessages,
 		},
 		{
-			name:    "everything empty uses builtins",
-			inbound: APIMessages, want: APIMessages,
+			name:          "unsorted provider list is normalized to canonical order",
+			providerTypes: []string{APIMessages, APIChatCompletions}, inbound: "", want: APIChatCompletions,
 		},
 		{
-			name:        "target fully unsupported falls back to available list",
-			targetTypes: []string{APIMessages}, modelTypes: []string{APIChatCompletions}, inbound: "", want: APIChatCompletions,
+			name: "everything empty uses builtins", inbound: APIResponses, want: APIResponses,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ChooseAPIType(tt.targetTypes, tt.modelTypes, tt.providerTypes, tt.inbound); got != tt.want {
-				t.Fatalf("ChooseAPIType()=%q want %q", got, tt.want)
+			if got := ChooseUpstreamAPIType(tt.modelTypes, tt.providerTypes, tt.inbound); got != tt.want {
+				t.Fatalf("ChooseUpstreamAPIType()=%q want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCanonicalAPITypes(t *testing.T) {
+	got := CanonicalAPITypes([]string{APIMessages, "bogus", APIChatCompletions, APIMessages})
+	want := []string{APIChatCompletions, APIMessages}
+	if len(got) != len(want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v want %v", got, want)
+		}
 	}
 }
 
@@ -69,18 +75,5 @@ func TestResolvePathPrecedence(t *testing.T) {
 	}
 	if got := ResolvePath(nil, nil, APIMessages); got != "/v1/messages" {
 		t.Fatalf("builtin default = %q", got)
-	}
-}
-
-func TestNormalizeOrderedAPITypes(t *testing.T) {
-	got := NormalizeOrderedAPITypes([]string{"responses", "chat.completions", "responses", "bogus"})
-	want := []string{APIResponses, APIChatCompletions}
-	if len(got) != len(want) {
-		t.Fatalf("got %v want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("got %v want %v", got, want)
-		}
 	}
 }

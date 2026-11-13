@@ -102,12 +102,6 @@ func (a *App) Gateway(apiType string) http.HandlerFunc {
 			writeGatewayError(w, apiType, http.StatusInternalServerError, "gateway_error", "failed to load virtual model")
 			return
 		}
-		if autoTarget == nil && !contains(vm.APITypes, apiType) {
-			writeGatewayError(w, apiType, http.StatusBadRequest, "invalid_request_error",
-				fmt.Sprintf("model %q is not configured for API type %s", req.Model, apiType))
-			return
-		}
-
 		ctx, cancel := context.WithTimeout(r.Context(), a.cfg.Gateway.RequestTimeout)
 		defer cancel()
 
@@ -234,7 +228,6 @@ func autoMatchVirtualModel(model string, target store.RuntimeTarget) store.Virtu
 	return store.VirtualModel{
 		Name:           autoMatchModelName,
 		VirtualModel:   model,
-		APITypes:       store.DefaultAPITypes(),
 		Enabled:        true,
 		RetryCount:     1,
 		RetryPolicy:    "fixed",
