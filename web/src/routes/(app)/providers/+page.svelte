@@ -486,9 +486,10 @@
 
             <div class="space-y-2">
               <div>
-                <div class="text-xs font-medium">API 格式</div>
+                <div class="text-xs font-medium">上游协议</div>
                 <p class="mt-0.5 text-[10.5px] text-muted-foreground">
-                  勾选该上游支持的协议；Path 留空则使用内置默认值。
+                  勾选该上游支持的协议（OpenAI Chat Completions / Responses / Anthropic
+                  Messages）；Path 留空则使用内置默认值。
                 </p>
               </div>
               <div class="space-y-1.5">

@@ -154,7 +154,7 @@
           <Table.Head>模型 ID</Table.Head>
           <Table.Head>来源</Table.Head>
           <Table.Head>Provider / 名称</Table.Head>
-          <Table.Head>接口</Table.Head>
+          <Table.Head>协议</Table.Head>
           <Table.Head class="text-right">上下文</Table.Head>
           <Table.Head class="text-right">价格 / 1M</Table.Head>
           <Table.Head>状态</Table.Head>

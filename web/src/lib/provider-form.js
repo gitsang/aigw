@@ -123,7 +123,7 @@ export function validateProvider(form) {
     errors.push({ tab: 'basic', message: 'Base URL 必须以 http:// 或 https:// 开头' });
   }
   const enabledFormats = Object.values(form.api_formats || {}).filter((v) => v.enabled);
-  if (!enabledFormats.length) errors.push({ tab: 'basic', message: '至少启用一种 API 格式' });
+  if (!enabledFormats.length) errors.push({ tab: 'basic', message: '至少启用一种上游协议' });
 
   if (form.proxy_type && form.proxy_type !== 'none' && !form.proxy_url.trim()) {
     errors.push({ tab: 'proxy', message: '启用代理时必须填写代理 URL' });

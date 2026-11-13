@@ -348,7 +348,7 @@
         <Table.Row>
           <Table.Head>时间</Table.Head>
           <Table.Head>Model</Table.Head>
-          <Table.Head>ApiType</Table.Head>
+          <Table.Head>协议</Table.Head>
           <Table.Head>调用方</Table.Head>
           <Table.Head>Provider / 虚拟模型</Table.Head>
           <Table.Head class="text-right">延迟</Table.Head>
