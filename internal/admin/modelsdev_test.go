@@ -18,7 +18,7 @@ type stubCatalog struct {
 	calls   int
 }
 
-func (s *stubCatalog) Lookup(_ context.Context, _ string, _ string, modelID string) (modelsdev.Lookup, error) {
+func (s *stubCatalog) LookupProvider(_ context.Context, _ modelsdev.Identity, modelID string) (modelsdev.Lookup, error) {
 	s.calls++
 	if s.err != nil {
 		return modelsdev.Lookup{}, s.err

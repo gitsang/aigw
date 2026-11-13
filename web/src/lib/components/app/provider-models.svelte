@@ -13,6 +13,7 @@
 
   import { api, fmtTime } from '$lib/api';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import * as Select from '$lib/components/ui/select/index.js';
   import {
     modelsDevActionMeta,
     modelsDevCostText,
@@ -20,7 +21,10 @@
     modelsDevPriceSummary,
     modelsDevScoreMeta,
     modelsDevSourceLabel,
+    modelsDevSourceName,
+    modelsDevSourceOptionLabel,
     lookupModelsDev,
+    shouldPreferExplicitSource,
     syncModelPrices,
     MODELSDEV_ACTIONS
   } from '$lib/models-dev.js';
@@ -71,15 +75,32 @@
   let syncApplying = $state(false);
   let syncError = $state('');
   let syncPreview = $state(null);
+  // Selected catalog source: '' means automatic slug/name matching. Aggregator
+  // providers must pick an explicit source, otherwise nearly every model is
+  // ambiguous because models.dev lists it under many providers at prices that
+  // genuinely differ.
+  let syncSource = $state('');
+  // Catalog sources from the auto-mode preview, kept while an explicit source is
+  // selected because the API only returns `sources` in auto mode.
+  let syncSources = $state([]);
+  // Guards the one-time auto selection so switching sources never re-defaults.
+  let syncAutoDefaultDone = false;
   // Incremented on every preview request so late responses never overwrite the
   // state of a newer request (or a closed dialog).
   let syncRequest = 0;
+
+  // Sentinel value for the "automatic matching" option in the source picker.
+  const AUTO_SOURCE = '__auto__';
 
   const syncItems = $derived(Array.isArray(syncPreview?.items) ? syncPreview.items : []);
   const syncCounts = $derived(syncPreview?.counts || {});
   const syncUpdateCount = $derived(Number(syncCounts.update) || 0);
   const canApplySync = $derived(
     !syncLoading && !syncApplying && !syncError && syncUpdateCount > 0
+  );
+  const syncSourceValue = $derived(syncSource || AUTO_SOURCE);
+  const syncSourceLabel = $derived(
+    syncSource ? modelsDevSourceName(syncSources, syncSource) : '自动匹配'
   );
 
   async function load() {
@@ -253,8 +274,11 @@
     syncOverwrite = false;
     syncPreview = null;
     syncError = '';
+    syncSource = '';
+    syncSources = [];
+    syncAutoDefaultDone = false;
     syncOpen = true;
-    runSyncPreview();
+    runSyncPreview({ autoDefault: true });
   }
 
   function closeSyncDialog() {
@@ -269,17 +293,47 @@
     syncError = '';
     syncPreview = null;
     syncOverwrite = false;
+    syncSource = '';
+    syncSources = [];
+    syncAutoDefaultDone = false;
   }
 
-  /** Load the dry-run preview for the current overwrite flag. */
-  async function runSyncPreview() {
+  /**
+   * Load the dry-run preview for the current source + overwrite flags.
+   *
+   * In auto mode the response also carries `sources`, the catalog providers with
+   * the widest coverage. On the first auto preview for an aggregator-like
+   * provider the dialog defaults to the best source, otherwise automatic
+   * matching would classify nearly every model as ambiguous.
+   */
+  async function runSyncPreview({ autoDefault = false } = {}) {
     if (!providerId) return;
     syncLoading = true;
     syncError = '';
     const requestId = ++syncRequest;
+    const source = syncSource;
     try {
-      const res = await syncModelPrices(providerId, { dryRun: true, overwrite: syncOverwrite });
+      const res = await syncModelPrices(providerId, {
+        dryRun: true,
+        overwrite: syncOverwrite,
+        sourceProvider: source
+      });
       if (requestId !== syncRequest) return;
+
+      // `sources` only comes back in auto mode; cache it so the picker keeps its
+      // options after switching to an explicit source.
+      const sources = Array.isArray(res?.sources) ? res.sources : null;
+      if (sources) syncSources = sources;
+
+      if (autoDefault && !syncAutoDefaultDone) {
+        syncAutoDefaultDone = true;
+        const best = syncSources[0]?.provider_id || '';
+        if (best && shouldPreferExplicitSource(res)) {
+          syncSource = best;
+          runSyncPreview();
+          return;
+        }
+      }
       syncPreview = res;
     } catch (e) {
       if (requestId !== syncRequest) return;
@@ -295,15 +349,29 @@
     runSyncPreview();
   }
 
+  /** Switch the catalog source ('' = automatic) and refresh the preview. */
+  function changeSyncSource(value) {
+    syncSource = value === AUTO_SOURCE ? '' : value;
+    runSyncPreview();
+  }
+
   /** Apply the previewed changes (dry_run:false) and reload the model list. */
   async function applySync() {
     if (!canApplySync) return;
     syncApplying = true;
     try {
-      const res = await syncModelPrices(providerId, { dryRun: false, overwrite: syncOverwrite });
+      const source = syncSource;
+      const res = await syncModelPrices(providerId, {
+        dryRun: false,
+        overwrite: syncOverwrite,
+        sourceProvider: source
+      });
       const counts = res?.counts || {};
       const updated = Number(counts.update ?? syncUpdateCount) || 0;
-      toast.success(`已更新 ${updated} 个模型价格`);
+      const sourceName = source ? modelsDevSourceName(syncSources, source) : '';
+      toast.success(
+        sourceName ? `已按 ${sourceName} 更新 ${updated} 个模型价格` : `已更新 ${updated} 个模型价格`
+      );
       if (Number(counts.error) > 0) {
         toast.error(`${Number(counts.error)} 个模型写入失败，请检查后重试`);
       }
@@ -732,20 +800,47 @@
       </Dialog.Description>
     </Dialog.Header>
 
-    <div class="flex items-center justify-between gap-2 rounded-md border px-2 py-1.5">
-      <div>
-        <Label for="sync-overwrite" class="text-xs">覆盖已有价格</Label>
-        <p class="mt-0.5 text-[10.5px] text-muted-foreground">
-          关闭时只填充空价格，已有价格保持不变。
+    <div class="grid gap-3 sm:grid-cols-2">
+      <div class="grid gap-1.5">
+        <Label for="sync-source">价格来源</Label>
+        <Select.Root
+          type="single"
+          value={syncSourceValue}
+          onValueChange={changeSyncSource}
+          disabled={syncApplying}
+        >
+          <Select.Trigger class="w-full" id="sync-source" aria-label="价格来源">
+            <Select.Value placeholder="自动匹配">{syncSourceLabel}</Select.Value>
+          </Select.Trigger>
+          <Select.Content>
+            <Select.Item value={AUTO_SOURCE} label="自动匹配">自动匹配</Select.Item>
+            {#each syncSources as source (source.provider_id)}
+              <Select.Item value={source.provider_id} label={source.provider_name || source.provider_id}>
+                {modelsDevSourceOptionLabel(source)}
+              </Select.Item>
+            {/each}
+          </Select.Content>
+        </Select.Root>
+        <p class="text-[10.5px] text-muted-foreground">
+          自动匹配只能确认唯一来源；聚合类 provider 请选择一个价格来源。
         </p>
       </div>
-      <Switch
-        id="sync-overwrite"
-        checked={syncOverwrite}
-        onCheckedChange={toggleOverwrite}
-        disabled={syncLoading || syncApplying}
-        aria-label="覆盖已有价格"
-      />
+
+      <div class="flex items-center justify-between gap-2 rounded-md border px-2 py-1.5">
+        <div>
+          <Label for="sync-overwrite" class="text-xs">覆盖已有价格</Label>
+          <p class="mt-0.5 text-[10.5px] text-muted-foreground">
+            关闭时只填充空价格，已有价格保持不变。
+          </p>
+        </div>
+        <Switch
+          id="sync-overwrite"
+          checked={syncOverwrite}
+          onCheckedChange={toggleOverwrite}
+          disabled={syncLoading || syncApplying}
+          aria-label="覆盖已有价格"
+        />
+      </div>
     </div>
 
     {#if syncLoading}
@@ -761,7 +856,7 @@
         <AlertDescription>{syncError}</AlertDescription>
       </Alert>
       <div class="flex justify-end">
-        <Button variant="outline" size="sm" onclick={runSyncPreview} disabled={syncApplying}>
+        <Button variant="outline" size="sm" onclick={() => runSyncPreview()} disabled={syncApplying}>
           <RefreshCwIcon />
           重试
         </Button>

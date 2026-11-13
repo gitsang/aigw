@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -26,12 +27,14 @@ var ErrFetch = errors.New("models.dev")
 
 // Match confidence scores. Lower is better and therefore sorts first.
 const (
-	// ScoreProviderID means the match came from provider slug == models.dev provider id.
+	// ScoreProviderID means the provider slug equals a models.dev provider id.
 	ScoreProviderID = 0
+	// ScoreAPIHost means the provider base URL host equals a models.dev api host.
+	ScoreAPIHost = 1
 	// ScoreProviderName means the provider display name matched.
-	ScoreProviderName = 1
+	ScoreProviderName = 2
 	// ScoreModelID means only the model id matched.
-	ScoreModelID = 2
+	ScoreModelID = 3
 )
 
 const (
@@ -94,6 +97,14 @@ func NewClient(url string, ttl time.Duration) *Client {
 // normalized modelID, ranked by how well the provider matches. providerSlug and
 // providerName may be empty; they are only used for scoring.
 func (c *Client) Lookup(ctx context.Context, providerSlug, providerName, modelID string) (Lookup, error) {
+	return c.LookupProvider(ctx, Identity{Slug: providerSlug, Name: providerName}, modelID)
+}
+
+// LookupProvider is Lookup with the full provider identity, so a provider's
+// base URL host can be used as an additional matching signal. It ranks catalog
+// entries by provider slug, then API host, then display name, then model id
+// alone.
+func (c *Client) LookupProvider(ctx context.Context, identity Identity, modelID string) (Lookup, error) {
 	normalized := normalizeModelID(modelID)
 	cat, fetchedAt, err := c.snapshot(ctx)
 	if err != nil {
@@ -102,7 +113,7 @@ func (c *Client) Lookup(ctx context.Context, providerSlug, providerName, modelID
 	return Lookup{
 		ModelID:   normalized,
 		FetchedAt: fetchedAt,
-		Matches:   cat.matches(providerSlug, providerName, normalized),
+		Matches:   cat.matches(identity, normalized),
 	}, nil
 }
 
@@ -223,6 +234,33 @@ func normalizeModelID(id string) string {
 	return strings.TrimSpace(s)
 }
 
+// Identity identifies the gateway provider being priced. Every field is
+// optional; more fields make matching more precise.
+type Identity struct {
+	Slug    string
+	Name    string
+	BaseURL string
+}
+
+// normalizeHost reduces a provider base URL to a bare lowercase host name so it
+// can be compared with the api fields in the models.dev catalog.
+func normalizeHost(baseURL string) string {
+	raw := strings.TrimSpace(baseURL)
+	if raw == "" {
+		return ""
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	host := strings.ToLower(parsed.Hostname())
+	host = strings.TrimPrefix(host, "www.")
+	return host
+}
+
 // catalog is the parsed models.dev payload, indexed by normalized model id.
 type catalog struct {
 	byModel map[string][]catalogModel
@@ -231,6 +269,7 @@ type catalog struct {
 type catalogModel struct {
 	providerID      string
 	providerName    string
+	apiHost         string
 	modelID         string
 	modelName       string
 	cost            store.ModelCost
@@ -239,9 +278,10 @@ type catalogModel struct {
 }
 
 // matches ranks catalog entries sharing modelID by provider match quality.
-func (cat *catalog) matches(providerSlug, providerName, modelID string) []Match {
-	slug := strings.TrimSpace(providerSlug)
-	name := strings.TrimSpace(providerName)
+func (cat *catalog) matches(identity Identity, modelID string) []Match {
+	slug := strings.TrimSpace(identity.Slug)
+	name := strings.TrimSpace(identity.Name)
+	host := normalizeHost(identity.BaseURL)
 
 	matches := make([]Match, 0, len(cat.byModel[modelID]))
 	for _, entry := range cat.byModel[modelID] {
@@ -249,6 +289,11 @@ func (cat *catalog) matches(providerSlug, providerName, modelID string) []Match 
 		switch {
 		case slug != "" && strings.EqualFold(slug, entry.providerID):
 			score = ScoreProviderID
+		case host != "" && host == entry.apiHost:
+			// The provider points at the same API endpoint models.dev
+			// documents, e.g. https://api.deepseek.com. Strong evidence for
+			// direct providers, but weaker than an explicit slug match.
+			score = ScoreAPIHost
 		case name != "" && strings.EqualFold(name, entry.providerName):
 			score = ScoreProviderName
 		}
@@ -356,6 +401,7 @@ func buildCatalog(payload map[string]apiProvider) *catalog {
 			byModel[modelID] = append(byModel[modelID], catalogModel{
 				providerID:      providerID,
 				providerName:    providerName,
+				apiHost:         normalizeHost(provider.API),
 				modelID:         modelID,
 				modelName:       modelName,
 				cost:            model.Cost.modelCost(),
@@ -421,8 +467,10 @@ func (m *apiModel) limits() (contextWindow, maxOutputTokens int) {
 
 // apiProvider models one entry of the models.dev provider map.
 type apiProvider struct {
-	ID     string              `json:"id"`
-	Name   string              `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// API is the provider's OpenAI-compatible base URL, when documented.
+	API    string              `json:"api"`
 	Models map[string]apiModel `json:"models"`
 }
 

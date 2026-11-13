@@ -18,7 +18,7 @@ import (
 // priceCatalog is the models.dev client surface used by the admin API. It is an
 // interface so the sync planner can be unit tested without network access.
 type priceCatalog interface {
-	Lookup(ctx context.Context, providerSlug, providerName, modelID string) (modelsdev.Lookup, error)
+	LookupProvider(ctx context.Context, identity modelsdev.Identity, modelID string) (modelsdev.Lookup, error)
 	Matches(ctx context.Context, modelID string) ([]modelsdev.Match, time.Time, error)
 	FetchedAt() time.Time
 }
@@ -108,7 +108,7 @@ func (h *Handler) lookupModelPrices(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
-	lookup, err := h.modelsDev.Lookup(ctx, provider.Slug, provider.Name, modelID)
+	lookup, err := h.modelsDev.LookupProvider(ctx, providerIdentity(provider), modelID)
 	if err != nil {
 		h.failModelsDev(w, err)
 		return
@@ -293,7 +293,7 @@ func (h *Handler) pickPriceMatch(ctx context.Context, provider store.Provider, m
 		}
 	}
 
-	lookup, err := h.modelsDev.Lookup(ctx, provider.Slug, provider.Name, modelID)
+	lookup, err := h.modelsDev.LookupProvider(ctx, providerIdentity(provider), modelID)
 	if err != nil {
 		return modelsdev.Match{}, "", err
 	}
@@ -311,6 +311,17 @@ func (h *Handler) pickPriceMatch(ctx context.Context, provider store.Provider, m
 		return modelsdev.Match{}, priceActionAmbiguous, nil
 	}
 	return matches[0], "", nil
+}
+
+// providerIdentity builds the matching identity for the models.dev catalog.
+// The base URL lets the catalog recognize direct providers by API host even when
+// their slug or display name differs from the catalog's naming.
+func providerIdentity(provider store.Provider) modelsdev.Identity {
+	return modelsdev.Identity{
+		Slug:    provider.Slug,
+		Name:    provider.Name,
+		BaseURL: provider.BaseURL,
+	}
 }
 
 func samePriceSnapshot(a, b priceSnapshot) bool {

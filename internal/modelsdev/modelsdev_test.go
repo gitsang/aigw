@@ -660,3 +660,106 @@ func jsonText(t *testing.T, v any) string {
 	}
 	return string(raw)
 }
+
+func TestLookupProviderHostRanking(t *testing.T) {
+	// A dedicated fixture: two catalog providers share a model id, and each
+	// documents an API base URL. The gateway provider's own base URL host must
+	// resolve the right one, which is how direct providers get automatic prices.
+	body := `{
+  "deepseek": {
+    "id": "deepseek", "name": "DeepSeek", "api": "https://api.deepseek.com",
+    "models": {"deepseek-v4-pro": {"id": "deepseek-v4-pro", "name": "DeepSeek V4 Pro",
+      "cost": {"input": 0.66, "output": 1.98}}}
+  },
+  "reseller": {
+    "id": "reseller", "name": "Reseller", "api": "https://api.reseller.example/v1",
+    "models": {"deepseek-v4-pro": {"id": "deepseek-v4-pro", "name": "DeepSeek V4 Pro",
+      "cost": {"input": 1.5, "output": 4}}}
+  }
+}`
+	srv, _ := fixtureServer(t, body)
+	client := NewClient(srv.URL, time.Hour)
+	ctx := context.Background()
+
+	t.Run("base url host outranks a name-only match", func(t *testing.T) {
+		got, err := client.LookupProvider(ctx, Identity{Name: "Reseller Inc", BaseURL: "https://api.deepseek.com/v1"}, "deepseek-v4-pro")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Matches) != 2 || got.Matches[0].ProviderID != "deepseek" {
+			t.Fatalf("matches = %+v, want deepseek first", got.Matches)
+		}
+		if got.Matches[0].Score != ScoreAPIHost {
+			t.Fatalf("host score = %d, want %d", got.Matches[0].Score, ScoreAPIHost)
+		}
+		if got.Matches[0].Cost.Input != 0.66 {
+			t.Fatalf("cost = %v, want the deepseek price", got.Matches[0].Cost.Input)
+		}
+	})
+
+	t.Run("base url without a scheme still matches", func(t *testing.T) {
+		got, err := client.LookupProvider(ctx, Identity{BaseURL: "api.deepseek.com/"}, "deepseek-v4-pro")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Matches[0].ProviderID != "deepseek" || got.Matches[0].Score != ScoreAPIHost {
+			t.Fatalf("matches = %+v", got.Matches)
+		}
+	})
+
+	t.Run("www prefix and ports are ignored", func(t *testing.T) {
+		got, err := client.LookupProvider(ctx, Identity{BaseURL: "https://WWW.API.DEEPSEEK.COM:8443/v1"}, "deepseek-v4-pro")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Matches[0].ProviderID != "deepseek" || got.Matches[0].Score != ScoreAPIHost {
+			t.Fatalf("matches = %+v", got.Matches)
+		}
+	})
+
+	t.Run("unknown host matches by model id only", func(t *testing.T) {
+		got, err := client.LookupProvider(ctx, Identity{Slug: "agg", BaseURL: "https://agg.example"}, "deepseek-v4-pro")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, match := range got.Matches {
+			if match.Score != ScoreModelID {
+				t.Fatalf("score = %d, want model-only for an unrelated host", match.Score)
+			}
+		}
+	})
+
+	t.Run("slug still outranks host", func(t *testing.T) {
+		got, err := client.LookupProvider(ctx, Identity{Slug: "reseller", BaseURL: "https://api.deepseek.com"}, "deepseek-v4-pro")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Matches) < 2 {
+			t.Fatalf("expected both providers, got %+v", got.Matches)
+		}
+		if got.Matches[0].ProviderID != "reseller" || got.Matches[0].Score != ScoreProviderID {
+			t.Fatalf("first match = %+v", got.Matches[0])
+		}
+		if got.Matches[1].ProviderID != "deepseek" || got.Matches[1].Score != ScoreAPIHost {
+			t.Fatalf("second match = %+v", got.Matches[1])
+		}
+	})
+
+	t.Run("two providers sharing a host are distinguishable only by slug", func(t *testing.T) {
+		// Both tie at ScoreProviderID, so the admin API reports "ambiguous" and
+		// the console asks the operator to pick a source.
+		shared := `{
+  "a": {"id": "a", "name": "A", "api": "https://shared.example", "models": {"m": {"id": "m", "cost": {"input": 1}}}},
+  "b": {"id": "b", "name": "B", "api": "https://shared.example", "models": {"m": {"id": "m", "cost": {"input": 2}}}}
+}`
+		sharedSrv, _ := fixtureServer(t, shared)
+		sharedClient := NewClient(sharedSrv.URL, time.Hour)
+		got, err := sharedClient.LookupProvider(ctx, Identity{BaseURL: "https://shared.example"}, "m")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Matches) != 2 || got.Matches[0].Score != got.Matches[1].Score {
+			t.Fatalf("matches = %+v, want two tied matches", got.Matches)
+		}
+	})
+}

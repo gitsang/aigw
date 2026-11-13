@@ -231,7 +231,7 @@
   }
 
   async function save() {
-    if (!form.virtual_model.trim()) return toast.error('请填写对外模型名');
+    if (!form.virtual_model.trim()) return toast.error('请填写虚拟模型 ID');
     if (!form.targets.length) return toast.error('至少配置一个 target');
     if (form.targets.some((target) => !target.provider_id || !target.provider_model_id)) {
       return toast.error('每个 target 都需要 provider 和模型');
@@ -277,7 +277,7 @@
 
 <PageHeader
   title="Virtual Model"
-  description="对外模型名（客户端请求的 model）→ 加权 LB target → fallback。健康检查每分钟执行，不健康的 LB 自动移出，全部下线时使用 fallback。"
+  description="虚拟模型 ID（客户端请求的 model）→ 加权 LB target → fallback。健康检查每分钟执行，不健康的 LB 自动移出，全部下线时使用 fallback。"
 >
   <Button onclick={openCreate} disabled={!providers.length}>
     <PlusIcon />
@@ -315,7 +315,7 @@
           <Empty.Media variant="icon"><RouteIcon /></Empty.Media>
           <Empty.Title>还没有虚拟模型</Empty.Title>
           <Empty.Description>
-            创建一个虚拟模型，把对外模型名映射到一个或多个上游 provider。
+            创建一个虚拟模型，把虚拟模型 ID 映射到一个或多个上游 provider。
           </Empty.Description>
         </Empty.Header>
         <Empty.Content>
@@ -464,7 +464,10 @@
         <Input id="r-name" bind:value={form.name} placeholder="deepseek-flash-lb" />
       </div>
       <div class="grid gap-1.5">
-        <Label for="r-model">对外模型名 (virtual model)</Label>
+        <Label for="r-model">
+          虚拟模型 ID
+          <span class="text-[10px] font-normal text-muted-foreground">（客户端请求的 model）</span>
+        </Label>
         <Input
           id="r-model"
           class="font-mono"
