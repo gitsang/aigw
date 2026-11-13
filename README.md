@@ -158,6 +158,8 @@ value can also be set with environment variables such as:
 | `AIGW_ENCRYPTION_KEY` | AES key material for provider secrets |
 | `AIGW_HEALTH_INTERVAL` | health check interval, e.g. `1m` |
 | `AIGW_REQUEST_TIMEOUT` | per-request timeout |
+| `AIGW_MODELSDEV_URL` | models.dev catalog URL (empty disables price sync) |
+| `AIGW_MODELSDEV_TTL` | how long the catalog stays cached, e.g. `6h` |
 | `AIGW_CORS_ORIGINS` | comma-separated CORS origins |
 
 ## Usage
@@ -228,6 +230,29 @@ Example: a virtual model accepts all three entry APIs and a target lists
 | Responses | Responses (exact match) |
 | Messages | Responses (first configured, translated) |
 
+### Model pricing from models.dev
+
+The models tab has two price-sync entry points backed by the
+[models.dev](https://models.dev/) catalog (USD per 1M tokens):
+
+- **Per model** — `从 models.dev 同步` in the price section of the model editor
+  fills in input/output/cache prices, tiered pricing, and any missing context
+  window / max output tokens. Nothing is written until the model is saved.
+- **Per provider** — `同步价格` previews the whole model list (old price, new
+  price, source, action) and writes only after you confirm. Existing prices are
+  kept unless `overwrite` is enabled.
+
+Providers are matched to the catalog by slug, then by API base URL host, then by
+display name. Aggregators usually match none of these, and models.dev lists the
+same model id under many upstreams at genuinely different prices, so the bulk
+dialog has a **source picker** listing the catalog providers that cover the most
+of your models. Automatic matching only applies a result when a single source
+scores best; otherwise the dialog asks you to pick one.
+
+The catalog is downloaded once and cached in memory (`modelsdev.url`,
+`modelsdev.ttl`). Set `modelsdev.url` to an empty string to disable the feature;
+the endpoints then return `503`.
+
 ## Virtual model example
 
 The requested configuration — `deepseek-flash` load-balanced 50/50 over two
@@ -268,6 +293,8 @@ All admin endpoints require `Authorization: Bearer <admin_token>`:
 | GET | `/api/admin/providers/{id}/models` | list provider models |
 | POST | `/api/admin/providers/{id}/models` | add a model manually |
 | POST | `/api/admin/providers/{id}/models/discover` | sync models from `/models` |
+| GET | `/api/admin/providers/{id}/models/modelsdev?model_id=...` | look up a model's prices on models.dev |
+| POST | `/api/admin/providers/{id}/models/sync-prices` | preview (`dry_run`) or apply models.dev prices |
 | PUT | `/api/admin/providers/{id}/models/{modelID}` | update model protocols/paths |
 | DELETE | `/api/admin/providers/{id}/models/{modelID}` | delete model |
 | GET | `/api/admin/virtual-models` | list virtual models |
