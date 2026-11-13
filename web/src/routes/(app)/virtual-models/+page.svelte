@@ -422,6 +422,14 @@
       </Dialog.Description>
     </Dialog.Header>
 
+    <div class="flex items-center justify-between gap-2 rounded-lg border px-3 py-2">
+      <div class="space-y-0.5">
+        <div class="text-xs font-medium">启用该虚拟模型</div>
+        <div class="text-[10.5px] text-muted-foreground">停用后该虚拟模型立即不可用</div>
+      </div>
+      <Switch bind:checked={form.enabled} />
+    </div>
+
     <div class="grid gap-3 sm:grid-cols-2">
       <div class="grid gap-1.5">
         <Label for="r-name">
@@ -485,16 +493,6 @@
         <Label for="r-backoff">最大退避 (ms)</Label>
         <Input id="r-backoff" type="number" min="0" bind:value={form.max_backoff_ms} />
       </div>
-    </div>
-
-    <div class="flex items-center justify-between gap-2 rounded-lg border px-3 py-2">
-      <div class="space-y-0.5">
-        <div class="text-xs font-medium">启用该虚拟模型</div>
-        <div class="text-[10.5px] text-muted-foreground">
-          停用后该虚拟模型立即不可用
-        </div>
-      </div>
-      <Switch bind:checked={form.enabled} />
     </div>
 
     <Separator />
