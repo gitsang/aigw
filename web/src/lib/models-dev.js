@@ -128,10 +128,18 @@ export function modelsDevSourceLabel(match) {
   return `${provider} · ${match.model_id || '—'}`;
 }
 
-/** Badge metadata for a lookup match score (0 = provider, 2 = model only). */
+/**
+ * Badge metadata for a lookup match score.
+ *
+ * The score is the backend's confidence rank, lower is better:
+ * 0 = provider slug matched the catalog id, 1 = the provider base URL host
+ * matched the catalog API host, 2 = the display name matched, 3 = only the
+ * model id matched. Keep these numbers in sync with internal/modelsdev.
+ */
 export function modelsDevScoreMeta(score) {
   if (score === 0) return { label: 'Provider 匹配', tone: 'success' };
-  if (score === 1) return { label: '名称匹配', tone: 'info' };
+  if (score === 1) return { label: 'API 地址匹配', tone: 'info' };
+  if (score === 2) return { label: '名称匹配', tone: 'info' };
   return { label: '仅模型匹配', tone: 'neutral' };
 }
 

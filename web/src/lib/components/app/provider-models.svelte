@@ -68,6 +68,11 @@
   let lookupFetchedAt = $state('');
   let appliedMatch = $state(null);
 
+  // Sentinel value for the "automatic matching" option in the source picker.
+  // Declared before the state that initializes from it: a `const` read before
+  // its declaration throws a ReferenceError at component init.
+  const AUTO_SOURCE = '__auto__';
+
   // Bulk models.dev price sync dialog state.
   let syncOpen = $state(false);
   let syncOverwrite = $state(false);
@@ -75,11 +80,11 @@
   let syncApplying = $state(false);
   let syncError = $state('');
   let syncPreview = $state(null);
-  // Selected catalog source: '' means automatic slug/name matching. Aggregator
-  // providers must pick an explicit source, otherwise nearly every model is
-  // ambiguous because models.dev lists it under many providers at prices that
-  // genuinely differ.
-  let syncSource = $state('');
+  // Selected catalog source. AUTO_SOURCE means automatic slug/name matching.
+  // Aggregator providers must pick an explicit source, otherwise nearly every
+  // model is ambiguous because models.dev lists it under many providers at
+  // prices that genuinely differ.
+  let syncSource = $state(AUTO_SOURCE);
   // Catalog sources from the auto-mode preview, kept while an explicit source is
   // selected because the API only returns `sources` in auto mode.
   let syncSources = $state([]);
@@ -89,18 +94,16 @@
   // state of a newer request (or a closed dialog).
   let syncRequest = 0;
 
-  // Sentinel value for the "automatic matching" option in the source picker.
-  const AUTO_SOURCE = '__auto__';
-
   const syncItems = $derived(Array.isArray(syncPreview?.items) ? syncPreview.items : []);
   const syncCounts = $derived(syncPreview?.counts || {});
   const syncUpdateCount = $derived(Number(syncCounts.update) || 0);
   const canApplySync = $derived(
     !syncLoading && !syncApplying && !syncError && syncUpdateCount > 0
   );
-  const syncSourceValue = $derived(syncSource || AUTO_SOURCE);
+  // Empty string means automatic matching to the admin API.
+  const syncSourceProvider = $derived(syncSource === AUTO_SOURCE ? '' : syncSource);
   const syncSourceLabel = $derived(
-    syncSource ? modelsDevSourceName(syncSources, syncSource) : '自动匹配'
+    syncSource === AUTO_SOURCE ? '自动匹配' : modelsDevSourceName(syncSources, syncSource)
   );
 
   async function load() {
@@ -240,10 +243,16 @@
       if (form !== f || (f.model_id || '').trim() !== modelId) return;
       lookupFetchedAt = res?.fetched_at || '';
       const matches = Array.isArray(res?.matches) ? res.matches : [];
+      // models.dev lists the same model id under many providers (often 10+, the
+      // API caps the list), so "more than one match" is not the same as "the
+      // source is unclear". Only ask the operator to pick when the best match is
+      // tied; a strictly better match (provider slug or API host) is applied
+      // directly, which is the common case for a direct provider.
+      const best = uniqueBestMatch(matches);
       if (matches.length === 0) {
         toast.error('models.dev 未收录该模型');
-      } else if (matches.length === 1) {
-        applyMatch(f, matches[0]);
+      } else if (best) {
+        applyMatch(f, best);
       } else {
         lookupMatches = matches;
       }
@@ -253,6 +262,20 @@
     } finally {
       if (form === f && (f.model_id || '').trim() === modelId) lookupBusy = false;
     }
+  }
+
+  /**
+   * Return the single best-ranked match, or null when the top score is shared.
+   *
+   * Matches arrive sorted by score (ascending); the callers treat a unique
+   * winner as unambiguous even when lower-ranked candidates exist.
+   */
+  function uniqueBestMatch(matches) {
+    if (!Array.isArray(matches) || matches.length === 0) return null;
+    if (matches.length === 1) return matches[0];
+    const bestScore = matches[0].score;
+    const tied = matches.filter((match) => match.score === bestScore);
+    return tied.length === 1 ? matches[0] : null;
   }
 
   /** Replace prices (and fill empty token limits) with one models.dev match. */
@@ -274,7 +297,7 @@
     syncOverwrite = false;
     syncPreview = null;
     syncError = '';
-    syncSource = '';
+    syncSource = AUTO_SOURCE;
     syncSources = [];
     syncAutoDefaultDone = false;
     syncOpen = true;
@@ -293,7 +316,7 @@
     syncError = '';
     syncPreview = null;
     syncOverwrite = false;
-    syncSource = '';
+    syncSource = AUTO_SOURCE;
     syncSources = [];
     syncAutoDefaultDone = false;
   }
@@ -311,7 +334,7 @@
     syncLoading = true;
     syncError = '';
     const requestId = ++syncRequest;
-    const source = syncSource;
+    const source = syncSourceProvider;
     try {
       const res = await syncModelPrices(providerId, {
         dryRun: true,
@@ -349,9 +372,9 @@
     runSyncPreview();
   }
 
-  /** Switch the catalog source ('' = automatic) and refresh the preview. */
+  /** Switch the catalog source and refresh the preview. */
   function changeSyncSource(value) {
-    syncSource = value === AUTO_SOURCE ? '' : value;
+    syncSource = value;
     runSyncPreview();
   }
 
@@ -360,7 +383,7 @@
     if (!canApplySync) return;
     syncApplying = true;
     try {
-      const source = syncSource;
+      const source = syncSourceProvider;
       const res = await syncModelPrices(providerId, {
         dryRun: false,
         overwrite: syncOverwrite,
@@ -805,12 +828,12 @@
         <Label for="sync-source">价格来源</Label>
         <Select.Root
           type="single"
-          value={syncSourceValue}
+          bind:value={syncSource}
           onValueChange={changeSyncSource}
           disabled={syncApplying}
         >
           <Select.Trigger class="w-full" id="sync-source" aria-label="价格来源">
-            <Select.Value placeholder="自动匹配">{syncSourceLabel}</Select.Value>
+            <Select.Value placeholder="自动匹配" />
           </Select.Trigger>
           <Select.Content>
             <Select.Item value={AUTO_SOURCE} label="自动匹配">自动匹配</Select.Item>
@@ -921,9 +944,9 @@
     <Dialog.Footer>
       <span class="mr-auto self-center text-[10.5px] text-muted-foreground">
         {#if syncPreview}
-          将更新 {syncUpdateCount} 项
+          来源：{syncSourceLabel} · 将更新 {syncUpdateCount} 项
         {:else}
-          —
+          来源：{syncSourceLabel}
         {/if}
       </span>
       <Button variant="outline" size="sm" onclick={closeSyncDialog} disabled={syncApplying}>
