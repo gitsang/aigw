@@ -21,10 +21,15 @@ type Handler struct {
 	store *store.Store
 	log   *slog.Logger
 	token string
+	// modelsDev is the optional models.dev price catalog. It is nil when the
+	// feature is disabled, in which case the price sync endpoints return 503.
+	modelsDev priceCatalog
 }
 
-func New(st *store.Store, token string, log *slog.Logger) *Handler {
-	return &Handler{store: st, token: token, log: log}
+// New builds the admin API handler. catalog may be nil to disable models.dev
+// price syncing.
+func New(st *store.Store, token string, log *slog.Logger, catalog priceCatalog) *Handler {
+	return &Handler{store: st, token: token, log: log, modelsDev: catalog}
 }
 
 func (h *Handler) Routes(r chi.Router) {
@@ -48,6 +53,8 @@ func (h *Handler) Routes(r chi.Router) {
 				r.Get("/models", h.listProviderModels)
 				r.Post("/models", h.createProviderModel)
 				r.Post("/models/discover", h.discoverProviderModels)
+				r.Get("/models/modelsdev", h.lookupModelPrices)
+				r.Post("/models/sync-prices", h.syncModelPrices)
 				r.Put("/models/{modelID}", h.updateProviderModel)
 				r.Delete("/models/{modelID}", h.deleteProviderModel)
 			})

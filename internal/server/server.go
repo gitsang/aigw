@@ -16,6 +16,7 @@ import (
 	"github.com/gitsang/aigw/internal/admin"
 	"github.com/gitsang/aigw/internal/app"
 	"github.com/gitsang/aigw/internal/config"
+	"github.com/gitsang/aigw/internal/modelsdev"
 	"github.com/gitsang/aigw/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -27,13 +28,19 @@ type Server struct {
 	gateway *app.App
 	admin   *admin.Handler
 	store   *store.Store
+	catalog *modelsdev.Client
 }
 
 func New(cfg config.Config, st *store.Store, log *slog.Logger) *Server {
+	// The price catalog is optional: an empty URL disables the sync endpoints.
+	var catalog *modelsdev.Client
+	if strings.TrimSpace(cfg.ModelsDev.URL) != "" {
+		catalog = modelsdev.NewClient(cfg.ModelsDev.URL, cfg.ModelsDev.TTL)
+	}
 	return &Server{
-		cfg: cfg, log: log, store: st,
+		cfg: cfg, log: log, store: st, catalog: catalog,
 		gateway: app.New(cfg, st, log),
-		admin:   admin.New(st, cfg.Server.AdminToken, log),
+		admin:   admin.New(st, cfg.Server.AdminToken, log, catalog),
 	}
 }
 

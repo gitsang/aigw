@@ -12,12 +12,13 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Database DatabaseConfig `yaml:"database"`
-	Security SecurityConfig `yaml:"security"`
-	Health   HealthConfig   `yaml:"health"`
-	Gateway  GatewayConfig  `yaml:"gateway"`
-	Web      WebConfig      `yaml:"web"`
+	Server    ServerConfig    `yaml:"server"`
+	Database  DatabaseConfig  `yaml:"database"`
+	Security  SecurityConfig  `yaml:"security"`
+	Health    HealthConfig    `yaml:"health"`
+	Gateway   GatewayConfig   `yaml:"gateway"`
+	ModelsDev ModelsDevConfig `yaml:"modelsdev"`
+	Web       WebConfig       `yaml:"web"`
 
 	// LegacyRouting is the pre-rename name of the gateway block. It is still
 	// accepted so existing config files keep working; new configs should use
@@ -62,6 +63,13 @@ type WebConfig struct {
 	Dir string `yaml:"dir"`
 }
 
+// ModelsDevConfig configures the optional models.dev price catalog used by the
+// console's price sync buttons. An empty URL disables the feature.
+type ModelsDevConfig struct {
+	URL string        `yaml:"url"`
+	TTL time.Duration `yaml:"ttl"`
+}
+
 func Default() Config {
 	return Config{
 		Server: ServerConfig{
@@ -83,6 +91,10 @@ func Default() Config {
 		Gateway: GatewayConfig{
 			RequestTimeout: 120 * time.Second,
 			MaxBodyBytes:   32 << 20,
+		},
+		ModelsDev: ModelsDevConfig{
+			URL: "https://models.dev/api.json",
+			TTL: 6 * time.Hour,
 		},
 		Web: WebConfig{Dir: "./web/build"},
 	}
@@ -136,6 +148,9 @@ func Load(path string) (Config, error) {
 	if cfg.Gateway.MaxBodyBytes <= 0 {
 		cfg.Gateway.MaxBodyBytes = 32 << 20
 	}
+	if cfg.ModelsDev.TTL <= 0 {
+		cfg.ModelsDev.TTL = 6 * time.Hour
+	}
 	return cfg, nil
 }
 
@@ -168,6 +183,8 @@ func applyEnv(cfg *Config) {
 	setDuration("AIGW_HEALTH_TIMEOUT", &cfg.Health.Timeout)
 	setInt("AIGW_HEALTH_CONCURRENCY", &cfg.Health.Concurrency)
 	setDuration("AIGW_REQUEST_TIMEOUT", &cfg.Gateway.RequestTimeout)
+	setString("AIGW_MODELSDEV_URL", &cfg.ModelsDev.URL)
+	setDuration("AIGW_MODELSDEV_TTL", &cfg.ModelsDev.TTL)
 	if v, ok := os.LookupEnv("AIGW_CORS_ORIGINS"); ok {
 		var origins []string
 		for _, p := range strings.Split(v, ",") {

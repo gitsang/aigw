@@ -255,6 +255,33 @@ WHERE id=$1 AND provider_id=$2`,
 	return s.GetProviderModel(ctx, id)
 }
 
+// UpdateProviderModelPricing replaces the price list and the token limits of a
+// provider model. It is used by the models.dev price sync, which must not touch
+// the model's identity, API types or enabled state.
+func (s *Store) UpdateProviderModelPricing(ctx context.Context, providerID, id string, cost ModelCost, contextWindow, maxOutputTokens int) error {
+	cost, err := normalizeModelCost(cost)
+	if err != nil {
+		return err
+	}
+	if contextWindow < 0 || maxOutputTokens < 0 {
+		return fmt.Errorf("%w: context_window and max_output_tokens must not be negative", ErrInvalid)
+	}
+	cmd, err := s.pool.Exec(ctx, `
+UPDATE provider_models SET cost_currency=$3, cost_input=$4, cost_output=$5,
+cost_cache_read=$6, cost_cache_write=$7, cost_tiers=$8,
+context_window=$9, max_output_tokens=$10
+WHERE id=$1 AND provider_id=$2`,
+		id, providerID, cost.Currency, cost.Input, cost.Output, cost.CacheRead, cost.CacheWrite,
+		marshalCostTiers(cost.Tiers), contextWindow, maxOutputTokens)
+	if err != nil {
+		return err
+	}
+	if cmd.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *Store) DeleteProviderModel(ctx context.Context, providerID, id string) error {
 	cmd, err := s.pool.Exec(ctx, `DELETE FROM provider_models WHERE id=$1 AND provider_id=$2`, id, providerID)
 	if err != nil {

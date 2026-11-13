@@ -28,5 +28,11 @@ gateway:
   request_timeout: 120s
   max_body_bytes: 33554432
 
+# Optional price catalog used by the console's "同步价格" buttons. The catalog is
+# cached in memory and refreshed after ttl; an empty url disables the feature.
+modelsdev:
+  url: "https://models.dev/api.json"
+  ttl: 6h
+
 web:
   dir: "./web/build"
