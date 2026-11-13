@@ -164,6 +164,15 @@
   function providerOf(target) {
     return providers.find((provider) => provider.id === target.provider_id);
   }
+  /** Labels for the select triggers. bits-ui only resolves an item's label once
+   * its content has been mounted, so a closed select would otherwise show the
+   * raw provider/model id. */
+  function providerLabelOf(target) {
+    return providerOf(target)?.name || '';
+  }
+  function modelLabelOf(target) {
+    return modelOf(target)?.model_id || '';
+  }
   function updateTarget(index, patch) {
     form.targets = form.targets.map((target, i) =>
       i === index ? { ...target, ...patch } : target
@@ -559,7 +568,7 @@
                 onValueChange={() => onProviderChange(index)}
               >
                 <Select.Trigger class="w-full" id={`t-provider-${index}`}>
-                  <Select.Value placeholder="选择…" />
+                  <Select.Value placeholder="选择…">{providerLabelOf(target)}</Select.Value>
                 </Select.Trigger>
                 <Select.Content>
                   {#each providers as provider (provider.id)}
@@ -577,7 +586,7 @@
                 bind:value={target.provider_model_id}
               >
                 <Select.Trigger class="w-full" id={`t-model-${index}`}>
-                  <Select.Value placeholder="选择模型…" />
+                  <Select.Value placeholder="选择模型…">{modelLabelOf(target)}</Select.Value>
                 </Select.Trigger>
                 <Select.Content>
                   {#each modelsFor(target.provider_id) as model (model.id)}
