@@ -44,24 +44,29 @@ function lookup(dictionary, key) {
  * Translate a dot-separated key, interpolating `{placeholder}` tokens from
  * `params`. Returns the key when the message is missing from every dictionary.
  *
- * Plural forms are opt-in per locale: when `params.count` is a number and the
- * dictionary defines `<key>_one` / `<key>_other`, the matching form is used and
- * the plain key is only a fallback. Locales without plural forms (Chinese) just
- * define the plain key and are unaffected.
+ * Plural forms are opt-in per locale: when `params.count` is a number and a
+ * dictionary defines `<key>_one` / `<key>_other`, that form is preferred over
+ * the plain key. Locales without plural forms (Chinese) only define the plain
+ * key, which must win over an English plural — otherwise a Chinese page would
+ * render the English `<key>_one` text for count 1.
  */
 export function t(key, params = {}) {
-  const dictionary = DICTIONARIES[i18n.locale] ?? DICTIONARIES[DEFAULT_LOCALE];
-  const forms =
-    typeof params.count === 'number' ? [`${key}_${params.count === 1 ? 'one' : 'other'}`, key] : [key];
-  let message;
-  for (const candidate of forms) {
-    message = lookup(dictionary, candidate);
-    if (typeof message !== 'string') {
-      message = lookup(DICTIONARIES[DEFAULT_LOCALE], candidate);
+  const pluralKey =
+    typeof params.count === 'number' ? `${key}_${params.count === 1 ? 'one' : 'other'}` : null;
+
+  // Resolve within one dictionary: the plural form first, then the plain key.
+  const resolve = (dictionary) => {
+    if (pluralKey) {
+      const plural = lookup(dictionary, pluralKey);
+      if (typeof plural === 'string') return plural;
     }
-    if (typeof message === 'string') break;
-  }
-  if (typeof message !== 'string') {
+    const plain = lookup(dictionary, key);
+    return typeof plain === 'string' ? plain : undefined;
+  };
+
+  let message = resolve(DICTIONARIES[i18n.locale] ?? DICTIONARIES[DEFAULT_LOCALE]);
+  if (message === undefined) message = resolve(DICTIONARIES[DEFAULT_LOCALE]);
+  if (message === undefined) {
     if (import.meta.env.DEV && browser) {
       console.warn(`[i18n] missing message for key: ${key}`);
     }
