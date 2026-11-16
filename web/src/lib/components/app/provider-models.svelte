@@ -12,6 +12,8 @@
   import CloudDownloadIcon from '@lucide/svelte/icons/cloud-download';
 
   import { api, fmtTime } from '$lib/api';
+  import { t } from '$lib/i18n/index.svelte.js';
+  import { formatNumber, formatPrice } from '$lib/i18n/format.js';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import * as Select from '$lib/components/ui/select/index.js';
   import {
@@ -103,7 +105,7 @@
   // Empty string means automatic matching to the admin API.
   const syncSourceProvider = $derived(syncSource === AUTO_SOURCE ? '' : syncSource);
   const syncSourceLabel = $derived(
-    syncSource === AUTO_SOURCE ? '自动匹配' : modelsDevSourceName(syncSources, syncSource)
+    syncSource === AUTO_SOURCE ? t('providers.sync.autoMatch') : modelsDevSourceName(syncSources, syncSource)
   );
 
   async function load() {
@@ -178,13 +180,13 @@
           method: 'PUT',
           body: JSON.stringify(payload)
         });
-        toast.success('模型已更新');
+        toast.success(t('providers.model.updatedToast'));
       } else {
         await api(`/api/admin/providers/${providerId}/models`, {
           method: 'POST',
           body: JSON.stringify(payload)
         });
-        toast.success('模型已添加');
+        toast.success(t('providers.model.addedToast'));
       }
       closeForm();
       await load();
@@ -199,7 +201,7 @@
     deleting = model.id;
     try {
       await api(`/api/admin/providers/${providerId}/models/${model.id}`, { method: 'DELETE' });
-      toast.success('模型已删除');
+      toast.success(t('providers.model.deletedToast'));
       if (expandedId === model.id) closeForm();
       await load();
     } catch (e) {
@@ -216,9 +218,9 @@
         method: 'POST'
       });
       models = res.models;
-      toast.success(`已同步 ${res.discovered} 个模型`);
+      toast.success(t('providers.model.discoverSuccess', { count: res.discovered }));
     } catch (e) {
-      toast.error(`同步失败：${e.message}`);
+      toast.error(t('providers.model.discoverFailed', { error: e.message }));
     } finally {
       discovering = false;
     }
@@ -230,7 +232,7 @@
   async function syncFromModelsDev(f) {
     const modelId = (f.model_id || '').trim();
     if (!modelId) {
-      toast.error('请先填写模型 ID');
+      toast.error(t('providers.modelsDev.modelIdRequired'));
       return;
     }
     lookupBusy = true;
@@ -250,7 +252,7 @@
       // directly, which is the common case for a direct provider.
       const best = uniqueBestMatch(matches);
       if (matches.length === 0) {
-        toast.error('models.dev 未收录该模型');
+        toast.error(t('providers.modelsDev.notFound'));
       } else if (best) {
         applyMatch(f, best);
       } else {
@@ -258,7 +260,7 @@
       }
     } catch (e) {
       if (form !== f || (f.model_id || '').trim() !== modelId) return;
-      toast.error(`models.dev 查询失败：${e.message}`);
+      toast.error(t('providers.modelsDev.lookupFailed', { error: e.message }));
     } finally {
       if (form === f && (f.model_id || '').trim() === modelId) lookupBusy = false;
     }
@@ -287,7 +289,7 @@
     if (patch.max_output_tokens !== undefined) f.max_output_tokens = patch.max_output_tokens;
     appliedMatch = match;
     lookupMatches = [];
-    toast.success('已填入 models.dev 价格（USD / 1M），保存后生效');
+    toast.success(t('providers.modelsDev.applied'));
   }
 
   // ---- bulk models.dev price sync dialog ----------------------------------
@@ -393,15 +395,17 @@
       const updated = Number(counts.update ?? syncUpdateCount) || 0;
       const sourceName = source ? modelsDevSourceName(syncSources, source) : '';
       toast.success(
-        sourceName ? `已按 ${sourceName} 更新 ${updated} 个模型价格` : `已更新 ${updated} 个模型价格`
+        sourceName
+          ? t('providers.sync.appliedWithSource', { source: sourceName, count: updated })
+          : t('providers.sync.applied', { count: updated })
       );
       if (Number(counts.error) > 0) {
-        toast.error(`${Number(counts.error)} 个模型写入失败，请检查后重试`);
+        toast.error(t('providers.sync.failedCount', { count: Number(counts.error) }));
       }
       closeSyncDialog();
       await load();
     } catch (e) {
-      toast.error(`同步失败：${e.message}`);
+      toast.error(t('providers.sync.failed', { error: e.message }));
     } finally {
       syncApplying = false;
     }
@@ -415,74 +419,86 @@
     f.cost.tiers = f.cost.tiers.filter((_, i) => i !== index);
   }
 
+  /** Price grouped by the active locale; the currency symbol is printed separately. */
   function money(value) {
-    return Number(value || 0).toLocaleString('en-US', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 6
-    });
+    return formatPrice(value);
   }
 
   function priceSummary(cost) {
-    const parts = [`in ${money(cost.input)}`, `out ${money(cost.output)}`];
-    if (cost.cache_read) parts.push(`cr ${money(cost.cache_read)}`);
-    if (cost.cache_write) parts.push(`cw ${money(cost.cache_write)}`);
-    return `${cost.currency} ${parts.join(' / ')} · 1M`;
+    const parts = [
+      `${t('providers.price.in')} ${money(cost.input)}`,
+      `${t('providers.price.out')} ${money(cost.output)}`
+    ];
+    if (cost.cache_read) parts.push(`${t('providers.price.cacheRead')} ${money(cost.cache_read)}`);
+    if (cost.cache_write) parts.push(`${t('providers.price.cacheWrite')} ${money(cost.cache_write)}`);
+    return `${cost.currency} ${parts.join(' / ')} · ${t('providers.price.perMillion')}`;
   }
 </script>
 
 {#snippet modelEditor(f)}
   <div class="space-y-3">
     <div class="flex items-center justify-between">
-      <span class="text-xs font-medium">{creating ? '添加模型' : '编辑模型'}</span>
-      <Button variant="ghost" size="icon-xs" onclick={closeForm} aria-label="收起编辑">
+      <span class="text-xs font-medium"
+        >{creating ? t('providers.model.addTitle') : t('providers.model.editTitle')}</span
+      >
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        onclick={closeForm}
+        aria-label={t('providers.model.collapseAria')}
+      >
         <XIcon />
       </Button>
     </div>
 
     <div class="grid gap-3 sm:grid-cols-2">
       <div class="grid gap-1.5">
-        <Label for="m-id">模型 ID</Label>
+        <Label for="m-id">{t('providers.model.id')}</Label>
         <Input
           id="m-id"
           class="font-mono text-[11px]"
           bind:value={f.model_id}
           oninput={resetLookup}
-          placeholder="deepseek/deepseek-flash"
+          placeholder={t('providers.model.idPlaceholder')}
         />
       </div>
       <div class="grid gap-1.5">
-        <Label for="m-name">名称</Label>
-        <Input id="m-name" bind:value={f.display_name} placeholder="可选" />
+        <Label for="m-name">{t('providers.model.name')}</Label>
+        <Input
+          id="m-name"
+          bind:value={f.display_name}
+          placeholder={t('providers.optional')}
+        />
       </div>
       <div class="grid gap-1.5">
-        <Label for="m-ctx">上下文窗口</Label>
+        <Label for="m-ctx">{t('providers.model.contextWindow')}</Label>
         <Input
           id="m-ctx"
           class="font-mono text-[11px]"
           bind:value={f.context_window}
-          placeholder="256K / 1M / 131072"
+          placeholder={t('providers.model.contextPlaceholder')}
         />
         <p class="text-[10.5px] text-muted-foreground">
           {#if parseTokenBudget(f.context_window) > 0}
-            = {parseTokenBudget(f.context_window).toLocaleString('en-US')} tokens
+            = {formatNumber(parseTokenBudget(f.context_window))} {t('common.unit.tokens')}
           {:else}
-            1K = 1024，1M = 1024K
+            {t('providers.model.tokenHint')}
           {/if}
         </p>
       </div>
       <div class="grid gap-1.5">
-        <Label for="m-max">最大输出</Label>
+        <Label for="m-max">{t('providers.model.maxOutput')}</Label>
         <Input
           id="m-max"
           class="font-mono text-[11px]"
           bind:value={f.max_output_tokens}
-          placeholder="8K / 64K"
+          placeholder={t('providers.model.maxOutputPlaceholder')}
         />
         <p class="text-[10.5px] text-muted-foreground">
           {#if parseTokenBudget(f.max_output_tokens) > 0}
-            = {parseTokenBudget(f.max_output_tokens).toLocaleString('en-US')} tokens
+            = {formatNumber(parseTokenBudget(f.max_output_tokens))} {t('common.unit.tokens')}
           {:else}
-            留空表示使用上游默认
+            {t('providers.model.maxOutputHint')}
           {/if}
         </p>
       </div>
@@ -493,9 +509,9 @@
     <div class="space-y-2">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <div class="text-xs font-medium">计费</div>
+          <div class="text-xs font-medium">{t('providers.model.cost.title')}</div>
           <p class="mt-0.5 text-[10.5px] text-muted-foreground">
-            每 100 万 tokens 的价格；阶梯超过阈值后整体替代基础价。
+            {t('providers.model.cost.description')}
           </p>
         </div>
         <div class="flex items-center gap-1.5">
@@ -503,8 +519,8 @@
             <Input
               class="h-7 font-mono text-[11px] uppercase"
               bind:value={f.cost.currency}
-              placeholder="USD"
-              aria-label="币种"
+              placeholder={t('providers.model.cost.currencyPlaceholder')}
+              aria-label={t('providers.model.cost.currencyAria')}
             />
           </div>
           <Button
@@ -512,14 +528,14 @@
             size="xs"
             onclick={() => syncFromModelsDev(f)}
             disabled={lookupBusy}
-            aria-label="从 models.dev 同步价格"
+            aria-label={t('providers.model.cost.syncAria')}
           >
             {#if lookupBusy}
               <Spinner class="size-2.5" />
-              查询中…
+              {t('providers.model.cost.lookupBusy')}
             {:else}
               <SparklesIcon />
-              从 models.dev 同步
+              {t('providers.model.cost.syncButton')}
             {/if}
           </Button>
         </div>
@@ -527,23 +543,27 @@
 
       {#if appliedMatch}
         <div class="flex flex-wrap items-center gap-1.5 text-[10.5px] text-muted-foreground">
-          <StatusBadge tone="success">已填入</StatusBadge>
-          <span>来源：{modelsDevSourceLabel(appliedMatch)}</span>
-          <span>· USD / 1M tokens</span>
+          <StatusBadge tone="success">{t('providers.model.cost.applied')}</StatusBadge>
+          <span>{t('providers.model.cost.source', { source: modelsDevSourceLabel(appliedMatch) })}</span>
+          <span>· {t('providers.model.cost.unit')}</span>
           <span class="font-mono">{modelsDevPriceSummary(appliedMatch.cost)}</span>
         </div>
       {/if}
 
       {#if lookupMatches.length > 1}
         <div class="space-y-1.5 rounded-md border border-dashed p-2">
-          <div class="text-[10.5px] font-medium text-muted-foreground">多个来源匹配，请选择</div>
+          <div class="text-[10.5px] font-medium text-muted-foreground">
+            {t('providers.model.cost.multipleMatches')}
+          </div>
           {#each lookupMatches as match (match.provider_id + '/' + match.model_id)}
             {@const score = modelsDevScoreMeta(match.score)}
             <button
               type="button"
               class="w-full rounded-md border px-2 py-1.5 text-left transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
               onclick={() => applyMatch(f, match)}
-              aria-label={`应用 ${match.provider_name || match.provider_id} 的价格`}
+              aria-label={t('providers.model.cost.applyAria', {
+                provider: match.provider_name || match.provider_id
+              })}
             >
               <div class="flex flex-wrap items-center gap-1.5">
                 <span class="text-[11px] font-medium">
@@ -559,26 +579,36 @@
               >
                 <span class="font-mono">{match.model_id}</span>
                 {#if match.context_window}
-                  <span>上下文 {formatTokenBudget(match.context_window)}</span>
+                  <span
+                    >{t('providers.model.contextWindowValue', {
+                      value: formatTokenBudget(match.context_window)
+                    })}</span
+                  >
                 {/if}
                 {#if match.max_output_tokens}
-                  <span>输出 {formatTokenBudget(match.max_output_tokens)}</span>
+                  <span
+                    >{t('providers.model.maxOutputValue', {
+                      value: formatTokenBudget(match.max_output_tokens)
+                    })}</span
+                  >
                 {/if}
               </div>
             </button>
           {/each}
           {#if lookupFetchedAt}
-            <p class="text-[10px] text-muted-foreground">数据快照：{fmtTime(lookupFetchedAt)}</p>
+            <p class="text-[10px] text-muted-foreground">
+              {t('providers.model.cost.snapshot', { time: fmtTime(lookupFetchedAt) })}
+            </p>
           {/if}
         </div>
       {/if}
 
       <div class="grid gap-2 sm:grid-cols-4">
         {#each [
-          ['input', '输入'],
-          ['output', '输出'],
-          ['cache_read', '缓存读取'],
-          ['cache_write', '缓存写入']
+          ['input', t('providers.model.cost.input')],
+          ['output', t('providers.model.cost.output')],
+          ['cache_read', t('providers.model.cost.cacheRead')],
+          ['cache_write', t('providers.model.cost.cacheWrite')]
         ] as [key, label] (key)}
           <div class="grid gap-1">
             <Label for={`m-cost-${key}`} class="text-[10.5px] text-muted-foreground">
@@ -598,10 +628,12 @@
 
       <div class="space-y-1.5">
         <div class="flex items-center justify-between">
-          <span class="text-[10.5px] font-medium text-muted-foreground">阶梯计价</span>
+          <span class="text-[10.5px] font-medium text-muted-foreground">
+            {t('providers.model.cost.tiersTitle')}
+          </span>
           <Button variant="ghost" size="xs" onclick={() => addTier(f)}>
             <PlusIcon />
-            添加阶梯
+            {t('providers.model.cost.addTier')}
           </Button>
         </div>
         {#if f.cost.tiers.length}
@@ -609,11 +641,11 @@
             <div
               class="grid grid-cols-[minmax(0,1.2fr)_repeat(4,minmax(0,1fr))_28px] gap-2 border-b bg-muted/50 px-2 py-1 text-[10px] font-medium text-muted-foreground"
             >
-              <span>输入 &gt;</span>
-              <span>输入</span>
-              <span>输出</span>
-              <span>缓存读</span>
-              <span>缓存写</span>
+              <span>{t('providers.model.cost.tierThreshold')} &gt;</span>
+              <span>{t('providers.model.cost.tierInput')}</span>
+              <span>{t('providers.model.cost.tierOutput')}</span>
+              <span>{t('providers.model.cost.tierCacheRead')}</span>
+              <span>{t('providers.model.cost.tierCacheWrite')}</span>
               <span></span>
             </div>
             {#each f.cost.tiers as tier, index (index)}
@@ -624,7 +656,7 @@
                   class="h-7 font-mono text-[11px]"
                   bind:value={tier.input_tokens_above}
                   placeholder="200K"
-                  aria-label={`阶梯 ${index + 1} 阈值`}
+                  aria-label={t('providers.model.cost.tierThresholdAria', { index: index + 1 })}
                 />
                 {#each ['input', 'output', 'cache_read', 'cache_write'] as key (key)}
                   <Input
@@ -633,7 +665,10 @@
                     min="0"
                     step="0.000001"
                     bind:value={tier[key]}
-                    aria-label={`阶梯 ${index + 1} ${key}`}
+                    aria-label={t('providers.model.cost.tierValueAria', {
+                      index: index + 1,
+                      field: key
+                    })}
                   />
                 {/each}
                 <Button
@@ -641,7 +676,7 @@
                   size="icon-xs"
                   class="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                   onclick={() => removeTier(f, index)}
-                  aria-label="删除阶梯"
+                  aria-label={t('providers.model.cost.removeTierAria')}
                 >
                   <XIcon />
                 </Button>
@@ -650,26 +685,28 @@
           </div>
         {:else}
           <div class="rounded-md border border-dashed px-2 py-2 text-center text-[10.5px] text-muted-foreground">
-            未配置阶梯，全部请求使用基础价
+            {t('providers.model.cost.noTiers')}
           </div>
         {/if}
       </div>
     </div>
 
     <div class="flex items-center justify-between gap-2 rounded-md border px-2 py-1.5">
-      <span class="text-xs">启用该模型</span>
+      <span class="text-xs">{t('providers.model.enabled')}</span>
       <Switch bind:checked={f.enabled} />
     </div>
 
     <div class="flex justify-end gap-1.5">
-      <Button variant="ghost" size="sm" onclick={closeForm} disabled={saving}>取消</Button>
+      <Button variant="ghost" size="sm" onclick={closeForm} disabled={saving}
+        >{t('common.action.cancel')}</Button
+      >
       <Button size="sm" onclick={save} disabled={saving}>
         {#if saving}
           <Spinner class="size-3.5" />
-          保存中…
+          {t('common.state.saving')}
         {:else}
           <CheckIcon />
-          保存
+          {t('common.action.save')}
         {/if}
       </Button>
     </div>
@@ -679,29 +716,31 @@
 <div class="space-y-3">
   <div class="flex flex-wrap items-start justify-between gap-2">
     <div>
-      <div class="text-xs font-medium">模型（{models.length}）</div>
+      <div class="text-xs font-medium">
+        {t('providers.model.listTitle', { count: models.length })}
+      </div>
       <p class="mt-0.5 text-[10.5px] text-muted-foreground">
-        每个上游模型一行，点击一行展开编辑；可配置上下文窗口、最大输出与分级计费。
+        {t('providers.model.listDescription')}
       </p>
     </div>
     <div class="flex items-center gap-1.5">
       <Button variant="outline" size="sm" onclick={discover} disabled={discovering || !providerId}>
         <RefreshCwIcon class={discovering ? 'animate-spin' : ''} />
-        从 /models 同步
+        {t('providers.model.discoverButton')}
       </Button>
       <Button
         variant="outline"
         size="sm"
         onclick={openSyncDialog}
         disabled={!providerId || !models.length}
-        title="从 models.dev 预览并同步全部模型价格"
+        title={t('providers.model.syncPricesTitle')}
       >
         <CloudDownloadIcon />
-        同步价格
+        {t('providers.model.syncPricesButton')}
       </Button>
       <Button size="sm" onclick={openCreate} disabled={!providerId}>
         <PlusIcon />
-        {creating ? '收起' : '添加模型'}
+        {creating ? t('providers.model.collapse') : t('providers.model.addTitle')}
       </Button>
     </div>
   </div>
@@ -730,8 +769,8 @@
       <Empty.Root class="border-0 py-8">
         <Empty.Header>
           <Empty.Media variant="icon"><LayersIcon /></Empty.Media>
-          <Empty.Title>还没有模型</Empty.Title>
-          <Empty.Description>从上游 /models 同步，或手动添加一行。</Empty.Description>
+          <Empty.Title>{t('providers.model.emptyTitle')}</Empty.Title>
+          <Empty.Description>{t('providers.model.emptyDescription')}</Empty.Description>
         </Empty.Header>
       </Empty.Root>
     {:else}
@@ -759,23 +798,33 @@
                     </span>
                   {/if}
                   <StatusBadge tone={model.source === 'discovered' ? 'info' : 'violet'}>
-                    {model.source === 'discovered' ? '自动同步' : '手动'}
+                    {model.source === 'discovered'
+                      ? t('providers.model.sourceDiscovered')
+                      : t('providers.model.sourceManual')}
                   </StatusBadge>
                   {#if !model.enabled}
-                    <StatusBadge tone="neutral">停用</StatusBadge>
+                    <StatusBadge tone="neutral">{t('providers.status.disabled')}</StatusBadge>
                   {/if}
                 </div>
                 <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] text-muted-foreground">
                   {#if model.context_window}
-                    <span>上下文 {formatTokenBudget(model.context_window)}</span>
+                    <span
+                      >{t('providers.model.contextWindowValue', {
+                        value: formatTokenBudget(model.context_window)
+                      })}</span
+                    >
                   {/if}
                   {#if model.max_output_tokens}
-                    <span>输出 {formatTokenBudget(model.max_output_tokens)}</span>
+                    <span
+                      >{t('providers.model.maxOutputValue', {
+                        value: formatTokenBudget(model.max_output_tokens)
+                      })}</span
+                    >
                   {/if}
                   <span class="font-mono">{priceSummary(model.cost || {})}</span>
                   {#if model.cost?.tiers?.length}
                     <StatusBadge tone="violet">
-                      {model.cost.tiers.length} 个阶梯
+                      {t('providers.model.tiersCount', { count: model.cost.tiers.length })}
                     </StatusBadge>
                   {/if}
                 </div>
@@ -788,7 +837,7 @@
                 class="text-destructive hover:bg-destructive/10 hover:text-destructive"
                 onclick={() => remove(model)}
                 disabled={deleting === model.id}
-                aria-label="删除模型"
+                aria-label={t('providers.model.deleteAria')}
               >
                 {#if deleting === model.id}
                   <Spinner class="size-3" />
@@ -817,26 +866,32 @@
 >
   <Dialog.Content class="sm:max-w-2xl">
     <Dialog.Header>
-      <Dialog.Title>同步 models.dev 价格</Dialog.Title>
+      <Dialog.Title>{t('providers.sync.title')}</Dialog.Title>
       <Dialog.Description>
-        先预览将从 models.dev 拉取的价格，点击应用后才会写入。价格为 USD / 100 万 tokens。
+        {t('providers.sync.description')}
       </Dialog.Description>
     </Dialog.Header>
 
     <div class="grid gap-3 sm:grid-cols-2">
       <div class="grid gap-1.5">
-        <Label for="sync-source">价格来源</Label>
+        <Label for="sync-source">{t('providers.sync.sourceLabel')}</Label>
         <Select.Root
           type="single"
           bind:value={syncSource}
           onValueChange={changeSyncSource}
           disabled={syncApplying}
         >
-          <Select.Trigger class="w-full" id="sync-source" aria-label="价格来源">
-            <Select.Value placeholder="自动匹配" />
+          <Select.Trigger
+            class="w-full"
+            id="sync-source"
+            aria-label={t('providers.sync.sourceLabel')}
+          >
+            <Select.Value placeholder={t('providers.sync.autoMatch')} />
           </Select.Trigger>
           <Select.Content>
-            <Select.Item value={AUTO_SOURCE} label="自动匹配">自动匹配</Select.Item>
+            <Select.Item value={AUTO_SOURCE} label={t('providers.sync.autoMatch')}
+              >{t('providers.sync.autoMatch')}</Select.Item
+            >
             {#each syncSources as source (source.provider_id)}
               <Select.Item value={source.provider_id} label={source.provider_name || source.provider_id}>
                 {modelsDevSourceOptionLabel(source)}
@@ -845,15 +900,15 @@
           </Select.Content>
         </Select.Root>
         <p class="text-[10.5px] text-muted-foreground">
-          自动匹配只能确认唯一来源；聚合类 provider 请选择一个价格来源。
+          {t('providers.sync.sourceHint')}
         </p>
       </div>
 
       <div class="flex items-center justify-between gap-2 rounded-md border px-2 py-1.5">
         <div>
-          <Label for="sync-overwrite" class="text-xs">覆盖已有价格</Label>
+          <Label for="sync-overwrite" class="text-xs">{t('providers.sync.overwrite')}</Label>
           <p class="mt-0.5 text-[10.5px] text-muted-foreground">
-            关闭时只填充空价格，已有价格保持不变。
+            {t('providers.sync.overwriteHint')}
           </p>
         </div>
         <Switch
@@ -861,7 +916,7 @@
           checked={syncOverwrite}
           onCheckedChange={toggleOverwrite}
           disabled={syncLoading || syncApplying}
-          aria-label="覆盖已有价格"
+          aria-label={t('providers.sync.overwrite')}
         />
       </div>
     </div>
@@ -871,7 +926,9 @@
         {#each Array(4) as _, i (i)}
           <Skeleton class="h-7 w-full" />
         {/each}
-        <p class="text-center text-[10.5px] text-muted-foreground">正在从 models.dev 拉取价格…</p>
+        <p class="text-center text-[10.5px] text-muted-foreground">
+          {t('providers.sync.loading')}
+        </p>
       </div>
     {:else if syncError}
       <Alert variant="destructive">
@@ -881,7 +938,7 @@
       <div class="flex justify-end">
         <Button variant="outline" size="sm" onclick={() => runSyncPreview()} disabled={syncApplying}>
           <RefreshCwIcon />
-          重试
+          {t('providers.sync.retry')}
         </Button>
       </div>
     {:else if syncPreview}
@@ -893,7 +950,10 @@
           {/if}
         {/each}
         <span class="text-[10.5px] text-muted-foreground">
-          共 {syncItems.length} 个模型 · 快照 {fmtTime(syncPreview.fetched_at)}
+          {t('providers.sync.summary', {
+            count: syncItems.length,
+            time: fmtTime(syncPreview.fetched_at)
+          })}
         </span>
       </div>
 
@@ -902,11 +962,11 @@
           <div
             class="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.9fr)_auto] gap-2 border-b bg-muted/50 px-2 py-1 text-[10px] font-medium text-muted-foreground"
           >
-            <span>模型</span>
-            <span>当前价格</span>
-            <span>同步后</span>
-            <span>来源</span>
-            <span>状态</span>
+            <span>{t('providers.sync.columns.model')}</span>
+            <span>{t('providers.sync.columns.currentPrice')}</span>
+            <span>{t('providers.sync.columns.after')}</span>
+            <span>{t('providers.sync.columns.source')}</span>
+            <span>{t('providers.sync.columns.status')}</span>
           </div>
           {#each syncItems as item (item.id || item.model_id)}
             {@const meta = modelsDevActionMeta(item.action)}
@@ -936,7 +996,7 @@
         <div
           class="rounded-md border border-dashed px-2 py-4 text-center text-[10.5px] text-muted-foreground"
         >
-          该 Provider 下没有模型。
+          {t('providers.sync.empty')}
         </div>
       {/if}
     {/if}
@@ -944,20 +1004,20 @@
     <Dialog.Footer>
       <span class="mr-auto self-center text-[10.5px] text-muted-foreground">
         {#if syncPreview}
-          来源：{syncSourceLabel} · 将更新 {syncUpdateCount} 项
+          {t('providers.sync.footerWithCount', { source: syncSourceLabel, count: syncUpdateCount })}
         {:else}
-          来源：{syncSourceLabel}
+          {t('providers.sync.footer', { source: syncSourceLabel })}
         {/if}
       </span>
-      <Button variant="outline" size="sm" onclick={closeSyncDialog} disabled={syncApplying}>
-        取消
-      </Button>
+      <Button variant="outline" size="sm" onclick={closeSyncDialog} disabled={syncApplying}
+        >{t('common.action.cancel')}</Button
+      >
       <Button size="sm" onclick={applySync} disabled={!canApplySync}>
         {#if syncApplying}
           <Spinner class="size-3" />
-          应用中…
+          {t('providers.sync.applying')}
         {:else}
-          应用 {syncUpdateCount} 项
+          {t('providers.sync.apply', { count: syncUpdateCount })}
         {/if}
       </Button>
     </Dialog.Footer>

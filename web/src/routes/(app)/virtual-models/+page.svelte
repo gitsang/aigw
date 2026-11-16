@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { api, fmtLatency, fmtTime } from '$lib/api';
+  import { t } from '$lib/i18n/index.svelte.js';
   import { toast } from 'svelte-sonner';
 
   import PlusIcon from '@lucide/svelte/icons/plus';
@@ -148,7 +149,7 @@
         providerModels[providerID] = await api(`/api/admin/providers/${providerID}/models`);
       } catch (e) {
         providerModels[providerID] = [];
-        toast.error(`加载模型失败：${e.message}`);
+        toast.error(t('virtualModels.toast.modelsLoadFailed', { error: e.message }));
       }
     }
     return providerModels[providerID];
@@ -199,7 +200,7 @@
       if (entry.endpoint === protocol.defaultEndpoint) continue;
       parts.push(`${apiSchemaLabel(protocol.value)}: ${entry.endpoint}`);
     }
-    return parts.length ? parts.join('  ') : '内置默认 Endpoint';
+    return parts.length ? parts.join('  ') : t('virtualModels.target.builtinEndpoint');
   }
   function targetEndpointHint(target) {
     return endpointSummary(previewSchema(target));
@@ -214,10 +215,10 @@
   }
 
   async function save() {
-    if (!form.virtual_model.trim()) return toast.error('请填写虚拟模型 ID');
-    if (!form.targets.length) return toast.error('至少配置一个 target');
+    if (!form.virtual_model.trim()) return toast.error(t('virtualModels.toast.virtualModelRequired'));
+    if (!form.targets.length) return toast.error(t('virtualModels.toast.targetRequired'));
     if (form.targets.some((target) => !target.provider_id || !target.provider_model_id)) {
-      return toast.error('每个 target 都需要 provider 和模型');
+      return toast.error(t('virtualModels.toast.targetIncomplete'));
     }
     saving = true;
     try {
@@ -227,7 +228,9 @@
       } else {
         await api('/api/admin/virtual-models', { method: 'POST', body: JSON.stringify(payload) });
       }
-      toast.success(editingId ? '虚拟模型已更新' : '虚拟模型已创建');
+      toast.success(
+        editingId ? t('virtualModels.toast.updated') : t('virtualModels.toast.created')
+      );
       modalOpen = false;
       await load();
     } catch (e) {
@@ -241,7 +244,7 @@
     deleting = true;
     try {
       await api(`/api/admin/virtual-models/${deleteTarget.id}`, { method: 'DELETE' });
-      toast.success('虚拟模型已删除');
+      toast.success(t('virtualModels.toast.deleted'));
       deleteTarget = null;
       await load();
     } catch (e) {
@@ -255,16 +258,16 @@
 </script>
 
 <svelte:head>
-  <title>Virtual Model · aigw</title>
+  <title>{t('virtualModels.title')}</title>
 </svelte:head>
 
 <PageHeader
-  title="Virtual Model"
-  description="虚拟模型 ID（客户端请求的 model）→ 加权 LB target → fallback。健康检查每分钟执行，不健康的 LB 自动移出，全部下线时使用 fallback。"
+  title={t('virtualModels.heading')}
+  description={t('virtualModels.description')}
 >
   <Button onclick={openCreate} disabled={!providers.length}>
     <PlusIcon />
-    添加虚拟模型
+    {t('virtualModels.action.create')}
   </Button>
 </PageHeader>
 
@@ -272,8 +275,11 @@
   <Alert>
     <TriangleAlertIcon />
     <AlertDescription>
-      请先在 <a href="/providers" class="font-medium underline underline-offset-2">Model Provider</a>
-      添加至少一个上游服务。
+      {t('virtualModels.setup.before')}
+      <a href="/providers" class="font-medium underline underline-offset-2"
+        >{t('virtualModels.setup.link')}</a
+      >
+      {t('virtualModels.setup.after')}
     </AlertDescription>
   </Alert>
 {/if}
@@ -296,15 +302,15 @@
       <Empty.Root class="py-10">
         <Empty.Header>
           <Empty.Media variant="icon"><RouteIcon /></Empty.Media>
-          <Empty.Title>还没有虚拟模型</Empty.Title>
+          <Empty.Title>{t('virtualModels.empty.title')}</Empty.Title>
           <Empty.Description>
-            创建一个虚拟模型，把虚拟模型 ID 映射到一个或多个上游 provider。
+            {t('virtualModels.empty.description')}
           </Empty.Description>
         </Empty.Header>
         <Empty.Content>
           <Button variant="outline" onclick={openCreate} disabled={!providers.length}>
             <PlusIcon />
-            创建虚拟模型
+            {t('virtualModels.action.createEmpty')}
           </Button>
         </Empty.Content>
       </Empty.Root>
@@ -322,19 +328,25 @@
                   {vm.virtual_model}
                 </span>
                 <StatusBadge tone={vm.enabled ? 'success' : 'neutral'} dot>
-                  {vm.enabled ? '启用' : '停用'}
+                  {vm.enabled
+                    ? t('virtualModels.state.enabled')
+                    : t('virtualModels.state.disabled')}
                 </StatusBadge>
                 <StatusBadge tone="violet">{vm.fallback_policy}</StatusBadge>
                 <StatusBadge tone="warning">{vm.retry_policy} · {vm.retry_count}x</StatusBadge>
               </div>
               <div class="text-[11px] text-muted-foreground">
-                {vm.name} · {vm.retry_delay_ms}ms base / {vm.max_backoff_ms}ms max backoff
+                {t('virtualModels.card.meta', {
+                  name: vm.name,
+                  delay: vm.retry_delay_ms,
+                  backoff: vm.max_backoff_ms
+                })}
               </div>
             </div>
             <div class="flex shrink-0 items-center gap-1">
               <Button variant="outline" size="sm" onclick={() => openEdit(vm)}>
                 <PencilIcon />
-                编辑
+                {t('common.action.edit')}
               </Button>
               <Button
                 variant="ghost"
@@ -343,7 +355,7 @@
                 onclick={() => (deleteTarget = vm)}
               >
                 <Trash2Icon />
-                删除
+                {t('common.action.delete')}
               </Button>
             </div>
           </div>
@@ -355,11 +367,11 @@
               <div
                 class="grid grid-cols-[70px_minmax(180px,1.4fr)_minmax(190px,1.1fr)_60px_minmax(140px,0.9fr)] gap-2 bg-muted/50 px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
               >
-                <span>角色</span>
-                <span>Provider / Upstream</span>
-                <span>上游协议</span>
-                <span class="text-right">权重</span>
-                <span>健康</span>
+                <span>{t('virtualModels.column.role')}</span>
+                <span>{t('virtualModels.column.providerUpstream')}</span>
+                <span>{t('virtualModels.column.upstreamProtocol')}</span>
+                <span class="text-right">{t('virtualModels.column.weight')}</span>
+                <span>{t('virtualModels.column.health')}</span>
               </div>
               {#each vm.targets as target, index (target.id ?? index)}
                 {@const protocols = apiSchemaProtocols(target.api_schema)}
@@ -382,7 +394,7 @@
                     <div class="truncate font-mono text-[10.5px]">
                       {protocols.length
                         ? protocols.map(apiSchemaLabel).join(' · ')
-                        : '继承模型 / Provider'}
+                        : t('virtualModels.target.inheritProtocol')}
                     </div>
                     <div class="truncate text-[10px] text-muted-foreground">
                       {endpointSummary(target.api_schema)}
@@ -393,11 +405,11 @@
                   </div>
                   <div class="min-w-0 space-y-0.5">
                     {#if target.role === 'fallback'}
-                      <StatusBadge tone="neutral">仅兜底</StatusBadge>
+                      <StatusBadge tone="neutral">{t('virtualModels.target.fallbackOnly')}</StatusBadge>
                     {:else if target.health?.healthy}
-                      <StatusBadge tone="success" dot>健康</StatusBadge>
+                      <StatusBadge tone="success" dot>{t('virtualModels.health.healthy')}</StatusBadge>
                     {:else}
-                      <StatusBadge tone="danger" dot>不健康</StatusBadge>
+                      <StatusBadge tone="danger" dot>{t('virtualModels.health.unhealthy')}</StatusBadge>
                     {/if}
                     {#if target.health?.checked_at}
                       <div class="truncate text-[10px] text-muted-foreground">
@@ -426,16 +438,22 @@
 <Dialog.Root bind:open={modalOpen}>
   <Dialog.Content class="max-h-[88vh] overflow-y-auto sm:max-w-4xl">
     <Dialog.Header>
-      <Dialog.Title>{editingId ? '编辑虚拟模型' : '添加虚拟模型'}</Dialog.Title>
+      <Dialog.Title>
+        {editingId
+          ? t('virtualModels.dialog.editTitle')
+          : t('virtualModels.dialog.createTitle')}
+      </Dialog.Title>
       <Dialog.Description>
-        虚拟模型映射到多个上游 target，按权重负载均衡，失败时按策略重试与兜底。
+        {t('virtualModels.dialog.description')}
       </Dialog.Description>
     </Dialog.Header>
 
     <div class="flex items-center justify-between gap-2 rounded-lg border px-3 py-2">
       <div class="space-y-0.5">
-        <div class="text-xs font-medium">启用该虚拟模型</div>
-        <div class="text-[10.5px] text-muted-foreground">停用后该虚拟模型立即不可用</div>
+        <div class="text-xs font-medium">{t('virtualModels.dialog.enabledLabel')}</div>
+        <div class="text-[10.5px] text-muted-foreground">
+          {t('virtualModels.dialog.enabledHint')}
+        </div>
       </div>
       <Switch bind:checked={form.enabled} />
     </div>
@@ -443,15 +461,19 @@
     <div class="grid gap-3 sm:grid-cols-2">
       <div class="grid gap-1.5">
         <Label for="r-name">
-          名称
-          <span class="text-[10px] font-normal text-muted-foreground">（写入日志 virtual_model_name）</span>
+          {t('virtualModels.form.name')}
+          <span class="text-[10px] font-normal text-muted-foreground"
+            >{t('virtualModels.form.nameHint')}</span
+          >
         </Label>
         <Input id="r-name" bind:value={form.name} placeholder="deepseek-flash-lb" />
       </div>
       <div class="grid gap-1.5">
         <Label for="r-model">
-          虚拟模型 ID
-          <span class="text-[10px] font-normal text-muted-foreground">（客户端请求的 model）</span>
+          {t('virtualModels.form.virtualModelId')}
+          <span class="text-[10px] font-normal text-muted-foreground"
+            >{t('virtualModels.form.virtualModelIdHint')}</span
+          >
         </Label>
         <Input
           id="r-model"
@@ -464,43 +486,47 @@
 
     <div class="grid gap-3 sm:grid-cols-2">
       <div class="grid gap-1.5 sm:col-span-2">
-        <Label for="r-fallback">Fallback 策略</Label>
+        <Label for="r-fallback">{t('virtualModels.form.fallbackPolicy')}</Label>
         <Select.Root type="single" bind:value={form.fallback_policy}>
           <Select.Trigger class="w-full" id="r-fallback">
             <Select.Value placeholder="fallback-first" />
           </Select.Trigger>
           <Select.Content>
             <Select.Item value="fallback-first" label="fallback-first">
-              fallback-first · 每轮先尝试全部 LB，再 fallback，整体循环重试
+              {t('virtualModels.policy.fallbackFirst')}
             </Select.Item>
             <Select.Item value="retry-first" label="retry-first">
-              retry-first · 单个 target 重试 N 次后切换，最后 fallback
+              {t('virtualModels.policy.retryFirst')}
             </Select.Item>
           </Select.Content>
         </Select.Root>
       </div>
       <div class="grid gap-1.5">
-        <Label for="r-retry">重试次数</Label>
+        <Label for="r-retry">{t('virtualModels.form.retryCount')}</Label>
         <Input id="r-retry" type="number" min="1" max="20" bind:value={form.retry_count} />
       </div>
       <div class="grid gap-1.5">
-        <Label for="r-policy">退避策略</Label>
+        <Label for="r-policy">{t('virtualModels.form.retryPolicy')}</Label>
         <Select.Root type="single" bind:value={form.retry_policy}>
           <Select.Trigger class="w-full" id="r-policy">
             <Select.Value placeholder="exponential" />
           </Select.Trigger>
           <Select.Content>
-            <Select.Item value="exponential" label="指数退避">指数退避</Select.Item>
-            <Select.Item value="fixed" label="固定退避">固定退避</Select.Item>
+            <Select.Item value="exponential" label={t('virtualModels.policy.exponential')}
+              >{t('virtualModels.policy.exponential')}</Select.Item
+            >
+            <Select.Item value="fixed" label={t('virtualModels.policy.fixed')}
+              >{t('virtualModels.policy.fixed')}</Select.Item
+            >
           </Select.Content>
         </Select.Root>
       </div>
       <div class="grid gap-1.5">
-        <Label for="r-delay">基础退避 (ms)</Label>
+        <Label for="r-delay">{t('virtualModels.form.baseBackoff')}</Label>
         <Input id="r-delay" type="number" min="0" bind:value={form.retry_delay_ms} />
       </div>
       <div class="grid gap-1.5">
-        <Label for="r-backoff">最大退避 (ms)</Label>
+        <Label for="r-backoff">{t('virtualModels.form.maxBackoff')}</Label>
         <Input id="r-backoff" type="number" min="0" bind:value={form.max_backoff_ms} />
       </div>
     </div>
@@ -510,11 +536,13 @@
     <div class="space-y-2">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 class="text-xs font-semibold">Targets</h3>
+          <h3 class="text-xs font-semibold">{t('virtualModels.targets.title')}</h3>
           <p class="mt-0.5 text-[10.5px] leading-relaxed text-muted-foreground">
-            每个 target 不需要选择上游协议：入口请求按<b class="text-foreground">原协议</b>转发，
-            上游不支持时按 <span class="font-mono">chat.completions → responses → messages</span>
-            的固定顺序取第一个可用协议并自动转换。协议由所选模型 / Provider 的配置决定，Endpoint 同源。
+            {t('virtualModels.targets.descriptionPrefix')}<b class="text-foreground"
+              >{t('virtualModels.targets.descriptionBold')}</b
+            >{t('virtualModels.targets.descriptionMiddle')}
+            <span class="font-mono">chat.completions → responses → messages</span>
+            {t('virtualModels.targets.descriptionSuffix')}
           </p>
         </div>
         <div class="flex items-center gap-1.5">
@@ -540,7 +568,7 @@
               size="xs"
               class="text-destructive hover:bg-destructive/10 hover:text-destructive"
               onclick={() => removeTarget(index)}
-              aria-label="删除 target"
+              aria-label={t('virtualModels.target.deleteAria')}
             >
               <Trash2Icon />
             </Button>
@@ -548,7 +576,9 @@
 
           <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-[110px_1fr_1.3fr_90px]">
             <div class="grid gap-1">
-              <Label for={`t-role-${index}`} class="text-[10px] text-muted-foreground">角色</Label>
+              <Label for={`t-role-${index}`} class="text-[10px] text-muted-foreground"
+                >{t('virtualModels.target.role')}</Label
+              >
               <Select.Root type="single" bind:value={target.role}>
                 <Select.Trigger class="w-full" id={`t-role-${index}`}>
                   <Select.Value placeholder="LB" />
@@ -561,7 +591,7 @@
             </div>
             <div class="grid gap-1">
               <Label for={`t-provider-${index}`} class="text-[10px] text-muted-foreground">
-                Provider
+                {t('virtualModels.target.provider')}
               </Label>
               <Select.Root
                 type="single"
@@ -569,7 +599,9 @@
                 onValueChange={() => onProviderChange(index)}
               >
                 <Select.Trigger class="w-full" id={`t-provider-${index}`}>
-                  <Select.Value placeholder="选择…">{providerLabelOf(target)}</Select.Value>
+                  <Select.Value placeholder={t('virtualModels.target.selectProvider')}
+                    >{providerLabelOf(target)}</Select.Value
+                  >
                 </Select.Trigger>
                 <Select.Content>
                   {#each providers as provider (provider.id)}
@@ -581,13 +613,17 @@
               </Select.Root>
             </div>
             <div class="grid gap-1">
-              <Label for={`t-model-${index}`} class="text-[10px] text-muted-foreground">模型</Label>
+              <Label for={`t-model-${index}`} class="text-[10px] text-muted-foreground"
+                >{t('virtualModels.target.model')}</Label
+              >
               <Select.Root
                 type="single"
                 bind:value={target.provider_model_id}
               >
                 <Select.Trigger class="w-full" id={`t-model-${index}`}>
-                  <Select.Value placeholder="选择模型…">{modelLabelOf(target)}</Select.Value>
+                  <Select.Value placeholder={t('virtualModels.target.selectModel')}
+                    >{modelLabelOf(target)}</Select.Value
+                  >
                 </Select.Trigger>
                 <Select.Content>
                   {#each modelsFor(target.provider_id) as model (model.id)}
@@ -597,7 +633,9 @@
               </Select.Root>
             </div>
             <div class="grid gap-1">
-              <Label for={`t-weight-${index}`} class="text-[10px] text-muted-foreground">权重</Label>
+              <Label for={`t-weight-${index}`} class="text-[10px] text-muted-foreground"
+                >{t('virtualModels.target.weight')}</Label
+              >
               <Input id={`t-weight-${index}`} type="number" min="1" bind:value={target.weight} />
             </div>
           </div>
@@ -605,22 +643,26 @@
           <div class="space-y-1">
             <div class="flex flex-wrap items-center gap-1.5">
               <span class="text-[10px] uppercase tracking-wide text-muted-foreground">
-                上游协议
+                {t('virtualModels.target.upstreamProtocol')}
               </span>
               {#each supportedProtocols(target) as name, i (name)}
                 <StatusBadge tone={i === 0 ? 'info' : 'neutral'}>{apiSchemaLabel(name)}</StatusBadge>
               {/each}
               {#if !supportedProtocols(target).length}
-                <span class="text-[10px] text-muted-foreground">继承模型 / Provider</span>
+                <span class="text-[10px] text-muted-foreground"
+                  >{t('virtualModels.target.inheritProtocol')}</span
+                >
               {/if}
-              <span class="text-[10px] text-muted-foreground">（自动，无需配置）</span>
+              <span class="text-[10px] text-muted-foreground"
+                >{t('virtualModels.target.autoProtocol')}</span
+              >
             </div>
             <div class="truncate font-mono text-[10px] text-muted-foreground">
-              Endpoint: {targetEndpointHint(target)}
+              {t('virtualModels.target.endpoint')}: {targetEndpointHint(target)}
             </div>
             {#if target.provider_id && !modelsFor(target.provider_id).length}
               <div class="text-[10px] text-amber-600 dark:text-amber-400">
-                该 Provider 还没有模型，请先在 Provider 详情添加。
+                {t('virtualModels.target.noModels')}
               </div>
             {/if}
           </div>
@@ -629,14 +671,16 @@
     </div>
 
     <Dialog.Footer>
-      <Button variant="outline" onclick={() => (modalOpen = false)} disabled={saving}>取消</Button>
+      <Button variant="outline" onclick={() => (modalOpen = false)} disabled={saving}
+        >{t('common.action.cancel')}</Button
+      >
       <Button onclick={save} disabled={saving}>
         {#if saving}
           <Spinner class="size-3.5" />
-          保存中…
+          {t('common.state.saving')}
         {:else}
           <CheckIcon />
-          保存
+          {t('common.action.save')}
         {/if}
       </Button>
     </Dialog.Footer>
@@ -645,8 +689,10 @@
 
 <ConfirmDialog
   bind:open={() => !!deleteTarget, (value) => !value && (deleteTarget = null)}
-  title="删除虚拟模型"
-  description={`确定删除虚拟模型 ${deleteTarget?.virtual_model || ''}？使用该模型的客户端将立即失败。`}
+  title={t('virtualModels.delete.title')}
+  description={t('virtualModels.delete.description', {
+    name: deleteTarget?.virtual_model || ''
+  })}
   busy={deleting}
   onconfirm={remove}
 />

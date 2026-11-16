@@ -7,6 +7,8 @@
  */
 
 import { api } from '$lib/api';
+import { t } from '$lib/i18n/index.svelte.js';
+import { formatPrice } from '$lib/i18n/format.js';
 import { formatTokenBudget, parseTokenBudget } from '$lib/model-form.js';
 
 /** Coerce an API price value to a finite non-negative number. */
@@ -29,7 +31,7 @@ export function isBlankTokenBudget(value) {
  */
 export function lookupModelsDev(providerId, modelId) {
   const id = String(modelId ?? '').trim();
-  if (!id) return Promise.reject(new Error('请先填写模型 ID'));
+  if (!id) return Promise.reject(new Error(t('models.dev.modelIdRequired')));
   const query = new URLSearchParams({ model_id: id });
   return api(`/api/admin/providers/${encodeURIComponent(providerId)}/models/modelsdev?${query}`);
 }
@@ -81,11 +83,15 @@ export function shouldPreferExplicitSource(payload) {
   return attention >= usable;
 }
 
-/** Render one source entry as "<provider_name> (<provider_id>) · 覆盖 N 个模型". */
+/** Render one source entry as "<provider_name> (<provider_id>) · covers N models". */
 export function modelsDevSourceOptionLabel(source) {
   if (!source) return '';
   const provider = source.provider_name || source.provider_id || '—';
-  return `${provider} (${source.provider_id || '—'}) · 覆盖 ${Number(source.models) || 0} 个模型`;
+  return t('models.dev.sourceOption', {
+    provider,
+    id: source.provider_id || '—',
+    count: Number(source.models) || 0
+  });
 }
 
 /** Resolve the display name of a catalog provider id from a sources list. */
@@ -103,13 +109,13 @@ export function modelsDevPriceSummary(cost) {
   if (priceNumber(source.cache_read) > 0) parts.push(`cr ${trimNumber(source.cache_read)}`);
   if (priceNumber(source.cache_write) > 0) parts.push(`cw ${trimNumber(source.cache_write)}`);
   if (Array.isArray(source.tiers) && source.tiers.length > 0) {
-    parts.push(`${source.tiers.length} 个阶梯`);
+    parts.push(t('models.dev.tiers', { count: source.tiers.length }));
   }
   return `${String(source.currency || 'USD').toUpperCase()} ${parts.join(' / ')} · 1M`;
 }
 
 /**
- * Price text for a snapshot row: "未设置" when every price is zero, "—" when
+ * Price text for a snapshot row: "Not set" when every price is zero, "—" when
  * the admin API omitted the snapshot entirely.
  */
 export function modelsDevCostText(cost) {
@@ -117,7 +123,7 @@ export function modelsDevCostText(cost) {
   const keys = ['input', 'output', 'cache_read', 'cache_write'];
   const zero = keys.every((key) => priceNumber(cost[key]) === 0);
   const hasTiers = Array.isArray(cost.tiers) && cost.tiers.length > 0;
-  if (zero && !hasTiers) return '未设置';
+  if (zero && !hasTiers) return t('models.dev.notSet');
   return modelsDevPriceSummary(cost);
 }
 
@@ -137,19 +143,21 @@ export function modelsDevSourceLabel(match) {
  * model id matched. Keep these numbers in sync with internal/modelsdev.
  */
 export function modelsDevScoreMeta(score) {
-  if (score === 0) return { label: 'Provider 匹配', tone: 'success' };
-  if (score === 1) return { label: 'API 地址匹配', tone: 'info' };
-  if (score === 2) return { label: '名称匹配', tone: 'info' };
-  return { label: '仅模型匹配', tone: 'neutral' };
+  if (score === 0) return { label: t('models.dev.score.provider'), tone: 'success' };
+  if (score === 1) return { label: t('models.dev.score.baseUrl'), tone: 'info' };
+  if (score === 2) return { label: t('models.dev.score.name'), tone: 'info' };
+  return { label: t('models.dev.score.modelOnly'), tone: 'neutral' };
 }
 
+// Actions keep a stable key (and tone) here; the label is resolved through the
+// active locale so the table follows the language switcher.
 const ACTION_META = {
-  update: { label: '可更新', tone: 'success' },
-  skip_has_price: { label: '已有价格跳过', tone: 'warning' },
-  unmatched: { label: '未匹配', tone: 'neutral' },
-  ambiguous: { label: '多个匹配', tone: 'warning' },
-  unchanged: { label: '无变化', tone: 'neutral' },
-  error: { label: '失败', tone: 'danger' }
+  update: { labelKey: 'models.dev.action.update', tone: 'success' },
+  skip_has_price: { labelKey: 'models.dev.action.skipHasPrice', tone: 'warning' },
+  unmatched: { labelKey: 'models.dev.action.unmatched', tone: 'neutral' },
+  ambiguous: { labelKey: 'models.dev.action.ambiguous', tone: 'warning' },
+  unchanged: { labelKey: 'models.dev.action.unchanged', tone: 'neutral' },
+  error: { labelKey: 'models.dev.action.error', tone: 'danger' }
 };
 
 /** Every bulk-sync action key, in display order. */
@@ -157,7 +165,9 @@ export const MODELSDEV_ACTIONS = Object.keys(ACTION_META);
 
 /** Badge metadata for a bulk-sync action. */
 export function modelsDevActionMeta(action) {
-  return ACTION_META[action] || { label: String(action ?? '未知'), tone: 'neutral' };
+  const meta = ACTION_META[action];
+  if (meta) return { label: t(meta.labelKey), tone: meta.tone };
+  return { label: String(action ?? t('models.dev.unknown')), tone: 'neutral' };
 }
 
 /**
@@ -210,8 +220,5 @@ export function modelsDevFormPatch(form, match) {
 
 /** Format a price with up to 6 decimals, matching the model list rows. */
 export function trimNumber(value) {
-  return Number(value || 0).toLocaleString('en-US', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 6
-  });
+  return formatPrice(value);
 }

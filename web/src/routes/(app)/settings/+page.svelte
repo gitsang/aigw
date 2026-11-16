@@ -132,7 +132,7 @@
             {t('settings.example.step2')}
             <code class="rounded bg-background px-1 font-mono text-[10.5px]"
               >yllm/deepseek/deepseek-flash</code
-            >;
+            >{t('settings.example.step2Tail')}
           </li>
           <li class="pl-4">
             {t('settings.example.step3')}
@@ -145,11 +145,9 @@
       <Alert>
         <LayersIcon />
         <AlertDescription>
-          {t('settings.note')}
-          <span class="font-mono">virtual_model_name</span>
-          {t('settings.noteKey')}
-          <span class="font-mono">auto-match</span>
-          {t('settings.noteTail')}
+          {t('settings.note')}<span class="font-mono">virtual_model_name</span>{t(
+            'settings.noteKey'
+          )}<span class="font-mono">auto-match</span>{t('settings.noteTail')}
         </AlertDescription>
       </Alert>
     </Card.Content>

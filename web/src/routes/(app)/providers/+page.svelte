@@ -41,6 +41,7 @@
   import HeaderRows from '$lib/components/app/header-rows.svelte';
   import ProviderModels from '$lib/components/app/provider-models.svelte';
 
+  import { t } from '$lib/i18n/index.svelte.js';
   import {
     blankProvider,
     providerToForm,
@@ -53,21 +54,22 @@
   } from '$lib/provider-form.js';
   import { API_PROTOCOLS } from '$lib/api-schema.js';
 
+  // Labels are translation keys resolved at render time so they follow the locale.
   const AUTH_OPTIONS = [
-    { value: 'bearer', label: 'Authorization: Bearer' },
-    { value: 'x-api-key', label: 'x-api-key' },
-    { value: 'none', label: '无认证' }
+    { value: 'bearer', labelKey: 'providers.basic.auth.bearer' },
+    { value: 'x-api-key', labelKey: 'providers.basic.auth.xApiKey' },
+    { value: 'none', labelKey: 'providers.basic.auth.none' }
   ];
   const PROXY_OPTIONS = [
-    { value: 'none', label: '不使用代理' },
-    { value: 'http', label: 'HTTP / HTTPS' },
-    { value: 'socks5', label: 'SOCKS5' }
+    { value: 'none', labelKey: 'providers.proxy.options.none' },
+    { value: 'http', labelKey: 'providers.proxy.options.http' },
+    { value: 'socks5', labelKey: 'providers.proxy.options.socks5' }
   ];
   const TABS = [
-    { value: 'basic', label: '基础', icon: ServerIcon },
-    { value: 'request', label: '请求', icon: RepeatIcon },
-    { value: 'proxy', label: '代理', icon: GlobeIcon },
-    { value: 'models', label: '模型', icon: BoxIcon }
+    { value: 'basic', labelKey: 'providers.tabs.basic', icon: ServerIcon },
+    { value: 'request', labelKey: 'providers.tabs.request', icon: RepeatIcon },
+    { value: 'proxy', labelKey: 'providers.tabs.proxy', icon: GlobeIcon },
+    { value: 'models', labelKey: 'providers.tabs.models', icon: BoxIcon }
   ];
 
   let providers = $state([]);
@@ -145,7 +147,7 @@
 
   function select(provider) {
     if (provider.id === selectedId) return;
-    if (dirty && !window.confirm('当前改动尚未保存，确定切换 Provider 吗？')) return;
+    if (dirty && !window.confirm(t('providers.action.unsavedSwitchConfirm'))) return;
     applyProvider(provider);
   }
 
@@ -163,7 +165,7 @@
         body: JSON.stringify(formToPayload({ ...blankProvider(), name, base_url: 'https://' }))
       });
       createOpen = false;
-      toast.success('Provider 已创建');
+      toast.success(t('providers.action.createdToast'));
       await load();
       const fresh = providers.find((p) => p.id === created.id);
       if (fresh) applyProvider(fresh);
@@ -189,7 +191,7 @@
         method: 'PUT',
         body: JSON.stringify(payload)
       });
-      toast.success('Provider 已保存');
+      toast.success(t('providers.action.savedToast'));
       providers = providers.map((p) => (p.id === updated.id ? updated : p));
       applyProvider(updated);
     } catch (e) {
@@ -202,14 +204,14 @@
   function reset() {
     if (!selected) return;
     applyProvider(selected);
-    toast.success('已还原为已保存的配置');
+    toast.success(t('providers.action.revertToast'));
   }
 
   async function remove() {
     deleting = true;
     try {
       await api(`/api/admin/providers/${deleteTarget.id}`, { method: 'DELETE' });
-      toast.success('Provider 已删除');
+      toast.success(t('providers.action.deletedToast'));
       deleteTarget = null;
       selectedId = null;
       await load();
@@ -224,25 +226,22 @@
 </script>
 
 <svelte:head>
-  <title>Model Provider · aigw</title>
+  <title>{t('providers.title')}</title>
 </svelte:head>
 
-<PageHeader
-  title="Model Provider"
-  description="管理上游服务、请求策略、出站代理与模型目录。这里的每项配置都会直接影响网关的实时行为。"
->
+<PageHeader title={t('providers.heading')} description={t('providers.description')}>
   {#if selected}
     <Button variant="outline" size="sm" onclick={reset} disabled={saving || !dirty}>
       <RotateCcwIcon />
-      还原
+      {t('providers.action.revert')}
     </Button>
     <Button size="sm" onclick={save} disabled={saving || !dirty}>
       {#if saving}
         <Spinner class="size-3.5" />
-        保存中…
+        {t('common.state.saving')}
       {:else}
         <SaveIcon />
-        保存
+        {t('common.action.save')}
       {/if}
     </Button>
   {/if}
@@ -262,10 +261,15 @@
       <div class="flex items-center justify-between gap-2">
         <div class="flex items-center gap-1.5">
           <BoxesIcon class="size-3.5 text-muted-foreground" />
-          <span class="text-xs font-semibold">Provider</span>
+          <span class="text-xs font-semibold">{t('providers.list.title')}</span>
           <StatusBadge tone="neutral">{providers.length}</StatusBadge>
         </div>
-        <Button variant="ghost" size="icon-xs" onclick={openCreate} aria-label="添加 Provider">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onclick={openCreate}
+          aria-label={t('providers.action.addProvider')}
+        >
           <PlusIcon />
         </Button>
       </div>
@@ -273,7 +277,7 @@
         <InputGroup.Addon><SearchIcon /></InputGroup.Addon>
         <InputGroup.Input
           class="text-[11px]"
-          placeholder="搜索名称 / 地址"
+          placeholder={t('providers.list.searchPlaceholder')}
           bind:value={search}
         />
       </InputGroup.Root>
@@ -288,7 +292,7 @@
         </div>
       {:else if !edited.length}
         <div class="px-2 py-8 text-center text-[11px] text-muted-foreground">
-          {providers.length ? '没有匹配的 Provider' : '还没有 Provider'}
+          {providers.length ? t('providers.list.noResults') : t('providers.list.empty')}
         </div>
       {:else}
         <ul class="space-y-0.5">
@@ -331,7 +335,7 @@
     <div class="border-t p-2">
       <Button variant="outline" size="sm" class="w-full justify-center" onclick={openCreate}>
         <PlusIcon />
-        添加 Provider
+        {t('providers.action.addProvider')}
       </Button>
     </div>
   </aside>
@@ -343,13 +347,13 @@
         <Empty.Root class="py-16">
           <Empty.Header>
             <Empty.Media variant="icon"><ServerIcon /></Empty.Media>
-            <Empty.Title>还没有 Provider</Empty.Title>
-            <Empty.Description>先添加一个上游服务，再配置模型与虚拟模型。</Empty.Description>
+            <Empty.Title>{t('providers.list.empty')}</Empty.Title>
+            <Empty.Description>{t('providers.empty.noProvidersDescription')}</Empty.Description>
           </Empty.Header>
           <Empty.Content>
             <Button variant="outline" onclick={openCreate}>
               <PlusIcon />
-              添加 Provider
+              {t('providers.action.addProvider')}
             </Button>
           </Empty.Content>
         </Empty.Root>
@@ -365,10 +369,10 @@
             <div class="flex flex-wrap items-center gap-1.5">
               <Card.Title class="text-sm">{form.name || selected.name}</Card.Title>
               <StatusBadge tone={form.enabled ? 'success' : 'neutral'} dot>
-                {form.enabled ? '启用' : '停用'}
+                {form.enabled ? t('providers.status.enabled') : t('providers.status.disabled')}
               </StatusBadge>
               {#if dirty}
-                <StatusBadge tone="warning">未保存</StatusBadge>
+                <StatusBadge tone="warning">{t('providers.status.unsaved')}</StatusBadge>
               {/if}
             </div>
             <Card.Description class="truncate font-mono text-[10.5px]">
@@ -377,7 +381,7 @@
           </div>
           <div class="flex shrink-0 items-center gap-2">
             <div class="flex items-center gap-1.5">
-              <span class="text-[10.5px] text-muted-foreground">启用</span>
+              <span class="text-[10.5px] text-muted-foreground">{t('providers.status.enabled')}</span>
               <Switch bind:checked={form.enabled} />
             </div>
             <Button
@@ -385,7 +389,7 @@
               size="icon-sm"
               class="text-destructive hover:bg-destructive/10 hover:text-destructive"
               onclick={() => (deleteTarget = selected)}
-              aria-label="删除 Provider"
+              aria-label={t('providers.action.deleteProvider')}
             >
               <Trash2Icon />
             </Button>
@@ -399,51 +403,59 @@
             {#each TABS as item (item.value)}
               <Tabs.Trigger value={item.value} class="gap-1.5 px-2 pb-1.5">
                 <item.icon class="size-3.5" />
-                {item.label}
+                {t(item.labelKey)}
               </Tabs.Trigger>
             {/each}
           </Tabs.List>
         </div>
 
         <div class="p-3">
-          <!-- ---------------------------------------------------- 基础 -->
+          <!-- ---------------------------------------------------- basics -->
           <Tabs.Content value="basic" class="space-y-4">
             <div class="grid gap-3 sm:grid-cols-2">
               <div class="grid gap-1.5">
-                <Label for="p-name">名称</Label>
-                <Input id="p-name" bind:value={form.name} placeholder="deepseek-official" />
+                <Label for="p-name">{t('providers.basic.name')}</Label>
+                <Input
+                  id="p-name"
+                  bind:value={form.name}
+                  placeholder={t('providers.basic.namePlaceholder')}
+                />
               </div>
               <div class="grid gap-1.5">
-                <Label for="p-slug">ID</Label>
+                <Label for="p-slug">{t('providers.basic.id')}</Label>
                 <Input
                   id="p-slug"
                   class="font-mono"
                   bind:value={form.slug}
-                  placeholder="留空则由名称自动生成"
+                  placeholder={t('providers.basic.idPlaceholder')}
                 />
               </div>
               <div class="grid gap-1.5 sm:col-span-2">
-                <Label for="p-base">Base URL</Label>
-                <Input id="p-base" bind:value={form.base_url} placeholder="https://api.example.com" />
+                <Label for="p-base">{t('providers.basic.baseUrl')}</Label>
+                <Input
+                  id="p-base"
+                  bind:value={form.base_url}
+                  placeholder={t('providers.basic.baseUrlPlaceholder')}
+                />
               </div>
               <div class="grid gap-1.5 sm:col-span-2">
-                <Label for="p-desc">描述</Label>
+                <Label for="p-desc">{t('providers.basic.description')}</Label>
                 <Input
                   id="p-desc"
                   bind:value={form.description}
-                  placeholder="可选，便于团队识别该上游用途"
+                  placeholder={t('providers.basic.descriptionPlaceholder')}
                 />
               </div>
               <div class="grid gap-1.5">
-                <Label for="p-auth">认证方式</Label>
+                <Label for="p-auth">{t('providers.basic.authType')}</Label>
                 <Select.Root type="single" bind:value={form.auth_type}>
                   <Select.Trigger class="w-full" id="p-auth">
-                    <Select.Value placeholder="选择认证方式" />
+                    <Select.Value placeholder={t('providers.basic.authPlaceholder')} />
                   </Select.Trigger>
                   <Select.Content>
                     {#each AUTH_OPTIONS as option (option.value)}
-                      <Select.Item value={option.value} label={option.label}>
-                        {option.label}
+                      <Select.Item value={option.value} label={t(option.labelKey)}>
+                        {t(option.labelKey)}
                       </Select.Item>
                     {/each}
                   </Select.Content>
@@ -451,17 +463,25 @@
               </div>
               <div class="grid gap-1.5">
                 <Label for="p-key">
-                  API Key {selected.has_api_key ? `（已配置 ••••${selected.api_key_last4}）` : ''}
+                  {t('providers.basic.apiKey')}{selected.has_api_key
+                    ? t('providers.basic.apiKeyConfigured', { last4: selected.api_key_last4 })
+                    : ''}
                 </Label>
                 {#if form.auth_type === 'none'}
-                  <Input id="p-key" placeholder="认证方式为「无认证」，无需填写" disabled />
+                  <Input
+                    id="p-key"
+                    placeholder={t('providers.basic.apiKeyNotRequired')}
+                    disabled
+                  />
                 {:else}
                   <div class="relative">
                     <Input
                       id="p-key"
                       type={showApiKey ? 'text' : 'password'}
                       bind:value={form.api_key}
-                      placeholder={selected.has_api_key ? '留空表示不修改' : 'sk-...'}
+                      placeholder={selected.has_api_key
+                        ? t('providers.keepExisting')
+                        : t('providers.basic.apiKeyPlaceholder')}
                       autocomplete="new-password"
                       class="pr-8"
                     />
@@ -469,7 +489,9 @@
                       type="button"
                       class="absolute inset-y-0 right-0 grid w-8 place-items-center text-muted-foreground hover:text-foreground"
                       onclick={() => (showApiKey = !showApiKey)}
-                      aria-label={showApiKey ? '隐藏 API Key' : '显示 API Key'}
+                      aria-label={showApiKey
+                        ? t('providers.basic.hideApiKey')
+                        : t('providers.basic.showApiKey')}
                     >
                       {#if showApiKey}
                         <EyeOffIcon class="size-3.5" />
@@ -486,10 +508,9 @@
 
             <div class="space-y-2">
               <div>
-                <div class="text-xs font-medium">上游协议</div>
+                <div class="text-xs font-medium">{t('providers.protocols.title')}</div>
                 <p class="mt-0.5 text-[10.5px] text-muted-foreground">
-                  勾选该上游支持的协议（OpenAI Chat Completions / Responses / Anthropic
-                  Messages）；Endpoint 留空则使用内置默认值。
+                  {t('providers.protocols.description')}
                 </p>
               </div>
               <div class="space-y-1.5">
@@ -508,7 +529,9 @@
                       bind:value={entry.endpoint}
                       placeholder={protocol.defaultEndpoint}
                       disabled={!entry.enabled}
-                      aria-label={`${protocol.label} Endpoint`}
+                      aria-label={t('providers.protocols.endpointAria', {
+                        protocol: protocol.label
+                      })}
                     />
                   </div>
                 {/each}
@@ -516,7 +539,7 @@
             </div>
           </Tabs.Content>
 
-          <!-- ---------------------------------------------------- 模型 -->
+          <!-- ---------------------------------------------------- models -->
           <Tabs.Content value="models">
             {#if selected}
               <ProviderModels
@@ -527,14 +550,16 @@
             {/if}
           </Tabs.Content>
 
-          <!-- ---------------------------------------------------- 请求 -->
+          <!-- ---------------------------------------------------- request -->
           <Tabs.Content value="request" class="space-y-4">
             <div class="grid gap-3 sm:grid-cols-2">
               <div class="grid gap-1.5">
-                <Label for="p-timeout">请求超时 (ms)</Label>
+                <Label for="p-timeout">{t('providers.request.timeout')}</Label>
                 <Input id="p-timeout" type="number" min="1" bind:value={form.timeout_ms} />
                 <p class="text-[10.5px] text-muted-foreground">
-                  {formatDuration(form.timeout_ms)} · 单次上游调用上限
+                  {t('providers.request.timeoutHint', {
+                    duration: formatDuration(form.timeout_ms)
+                  })}
                 </p>
               </div>
             </div>
@@ -542,21 +567,23 @@
             <div class="space-y-3 rounded-lg border bg-muted/30 p-2.5">
               <div class="flex items-center justify-between gap-2">
                 <div>
-                  <div class="text-xs font-medium">重试规则</div>
+                  <div class="text-xs font-medium">{t('providers.request.retryTitle')}</div>
                   <p class="mt-0.5 text-[10.5px] text-muted-foreground">
-                    Provider 级重试；设为 0 时仅由虚拟模型的重试策略控制。
+                    {t('providers.request.retryDescription')}
                   </p>
                 </div>
                 {#if form.retry_count > 0}
-                  <StatusBadge tone="primary">共 {Number(form.retry_count) + 1} 次尝试</StatusBadge>
+                  <StatusBadge tone="primary">
+                    {t('providers.request.attempts', { count: Number(form.retry_count) + 1 })}
+                  </StatusBadge>
                 {:else}
-                  <StatusBadge tone="neutral">未启用</StatusBadge>
+                  <StatusBadge tone="neutral">{t('providers.request.retryDisabled')}</StatusBadge>
                 {/if}
               </div>
 
               <div class="grid gap-3 sm:grid-cols-2">
                 <div class="grid gap-1.5">
-                  <Label for="p-retry">重试次数</Label>
+                  <Label for="p-retry">{t('providers.request.retryCount')}</Label>
                   <Input
                     id="p-retry"
                     type="number"
@@ -566,17 +593,20 @@
                   />
                 </div>
                 <div class="grid gap-1.5">
-                  <Label for="p-backoff">退避策略</Label>
+                  <Label for="p-backoff">{t('providers.request.backoff')}</Label>
                   <Select.Root type="single" bind:value={form.retry_backoff}>
                     <Select.Trigger class="w-full" id="p-backoff">
-                      <Select.Value placeholder="exponential" />
+                      <Select.Value placeholder={t('providers.request.backoffPlaceholder')} />
                     </Select.Trigger>
                     <Select.Content>
-                      <Select.Item value="exponential" label="指数退避 (exponential)">
-                        指数退避 (exponential)
+                      <Select.Item
+                        value="exponential"
+                        label={t('providers.request.backoffExponential')}
+                      >
+                        {t('providers.request.backoffExponential')}
                       </Select.Item>
-                      <Select.Item value="linear" label="线性退避 (linear)">
-                        线性退避 (linear)
+                      <Select.Item value="linear" label={t('providers.request.backoffLinear')}>
+                        {t('providers.request.backoffLinear')}
                       </Select.Item>
                     </Select.Content>
                   </Select.Root>
@@ -584,7 +614,7 @@
 
                 {#if form.retry_backoff === 'exponential'}
                   <div class="grid gap-1.5">
-                    <Label for="p-retry-initial">基础退避 (ms)</Label>
+                    <Label for="p-retry-initial">{t('providers.request.retryInitial')}</Label>
                     <Input
                       id="p-retry-initial"
                       type="number"
@@ -593,12 +623,12 @@
                     />
                   </div>
                   <div class="grid gap-1.5">
-                    <Label for="p-retry-max">最大退避 (ms)</Label>
+                    <Label for="p-retry-max">{t('providers.request.retryMax')}</Label>
                     <Input id="p-retry-max" type="number" min="0" bind:value={form.retry_max_ms} />
                   </div>
                 {:else}
                   <div class="grid gap-1.5 sm:col-span-2">
-                    <Label for="p-retry-linear">退避间隔 (ms)</Label>
+                    <Label for="p-retry-linear">{t('providers.request.retryLinearInterval')}</Label>
                     <Input
                       id="p-retry-linear"
                       type="number"
@@ -606,7 +636,9 @@
                       bind:value={form.retry_linear_interval_ms}
                     />
                     <p class="text-[10.5px] text-muted-foreground">
-                      每次重试前固定等待 {formatDuration(form.retry_linear_interval_ms)}
+                      {t('providers.request.retryLinearHint', {
+                        duration: formatDuration(form.retry_linear_interval_ms)
+                      })}
                     </p>
                   </div>
                 {/if}
@@ -614,56 +646,59 @@
             </div>
 
             <HeaderRows
-              label="额外 Header"
-              description="会附加到每个发往该上游的请求。Content-Type、Authorization 等受保护 Header 会被忽略。"
+              label={t('providers.headers.label')}
+              description={t('providers.headers.description')}
               bind:rows={headerRows}
             />
           </Tabs.Content>
 
-          <!-- ---------------------------------------------------- 代理 -->
+          <!-- ---------------------------------------------------- proxy -->
           <Tabs.Content value="proxy" class="space-y-4">
             <div class="grid gap-3 sm:grid-cols-2">
               <div class="grid gap-1.5">
-                <Label for="p-proxy-type">代理类型</Label>
+                <Label for="p-proxy-type">{t('providers.proxy.type')}</Label>
                 <Select.Root type="single" bind:value={form.proxy_type}>
                   <Select.Trigger class="w-full" id="p-proxy-type">
-                    <Select.Value placeholder="不使用代理" />
+                    <Select.Value placeholder={t('providers.proxy.options.none')} />
                   </Select.Trigger>
                   <Select.Content>
                     {#each PROXY_OPTIONS as option (option.value)}
-                      <Select.Item value={option.value} label={option.label}>
-                        {option.label}
+                      <Select.Item value={option.value} label={t(option.labelKey)}>
+                        {t(option.labelKey)}
                       </Select.Item>
                     {/each}
                   </Select.Content>
                 </Select.Root>
-                <p class="text-[10.5px] text-muted-foreground">网关访问该上游时经由此代理出站</p>
+                <p class="text-[10.5px] text-muted-foreground">{t('providers.proxy.typeHint')}</p>
               </div>
               <div class="grid gap-1.5">
-                <Label for="p-proxy-url">URL</Label>
+                <Label for="p-proxy-url">{t('providers.proxy.url')}</Label>
                 <Input
                   id="p-proxy-url"
                   class="font-mono text-[11px]"
                   bind:value={form.proxy_url}
                   placeholder={form.proxy_type === 'socks5'
-                    ? 'socks5://127.0.0.1:1080'
-                    : 'http://127.0.0.1:7890'}
+                    ? t('providers.proxy.urlPlaceholderSocks5')
+                    : t('providers.proxy.urlPlaceholderHttp')}
                   disabled={!proxyEnabled}
                 />
               </div>
               <div class="grid gap-1.5">
-                <Label for="p-proxy-user">Username</Label>
+                <Label for="p-proxy-user">{t('providers.proxy.username')}</Label>
                 <Input
                   id="p-proxy-user"
                   bind:value={form.proxy_username}
-                  placeholder="可选"
+                  placeholder={t('providers.optional')}
                   disabled={!proxyEnabled}
                 />
               </div>
               <div class="grid gap-1.5">
                 <Label for="p-proxy-pass">
-                  Password {selected.has_proxy_password
-                    ? `（已配置 ••••${selected.proxy_password_last4}）`
+                  {t('providers.proxy.password')}
+                  {selected.has_proxy_password
+                    ? t('providers.proxy.passwordConfigured', {
+                        last4: selected.proxy_password_last4
+                      })
                     : ''}
                 </Label>
                 <div class="relative">
@@ -671,7 +706,9 @@
                     id="p-proxy-pass"
                     type={showProxyPassword ? 'text' : 'password'}
                     bind:value={form.proxy_password}
-                    placeholder={selected.has_proxy_password ? '留空表示不修改' : '可选'}
+                    placeholder={selected.has_proxy_password
+                      ? t('providers.keepExisting')
+                      : t('providers.optional')}
                     disabled={!proxyEnabled}
                     autocomplete="new-password"
                     class="pr-8"
@@ -681,7 +718,9 @@
                     class="absolute inset-y-0 right-0 grid w-8 place-items-center text-muted-foreground hover:text-foreground disabled:opacity-40"
                     onclick={() => (showProxyPassword = !showProxyPassword)}
                     disabled={!proxyEnabled}
-                    aria-label={showProxyPassword ? '隐藏代理密码' : '显示代理密码'}
+                    aria-label={showProxyPassword
+                      ? t('providers.proxy.hidePassword')
+                      : t('providers.proxy.showPassword')}
                   >
                     {#if showProxyPassword}
                       <EyeOffIcon class="size-3.5" />
@@ -697,14 +736,14 @@
               <Alert>
                 <ShieldCheckIcon />
                 <AlertDescription>
-                  代理密码与 API Key 一样使用 AES-256-GCM 加密存储，接口只回传末 4 位。保存后新请求立即生效。
+                  {t('providers.proxy.encryptedNotice')}
                 </AlertDescription>
               </Alert>
             {:else}
               <Alert>
                 <GlobeIcon />
                 <AlertDescription>
-                  未启用代理，网关直连上游。若该上游需要经代理访问，请选择代理类型并填写 URL。
+                  {t('providers.proxy.disabledNotice')}
                 </AlertDescription>
               </Alert>
             {/if}
@@ -716,14 +755,16 @@
 
       <Card.Footer class="justify-end border-t">
         <div class="flex items-center gap-1.5">
-          <Button variant="ghost" size="sm" onclick={reset} disabled={saving || !dirty}>还原</Button>
+          <Button variant="ghost" size="sm" onclick={reset} disabled={saving || !dirty}
+            >{t('providers.action.revert')}</Button
+          >
           <Button size="sm" onclick={save} disabled={saving || !dirty}>
             {#if saving}
               <Spinner class="size-3.5" />
-              保存中…
+              {t('common.state.saving')}
             {:else}
               <SaveIcon />
-              保存
+              {t('common.action.save')}
             {/if}
           </Button>
         </div>
@@ -735,8 +776,8 @@
         <Empty.Root class="py-16">
           <Empty.Header>
             <Empty.Media variant="icon"><LayersIcon /></Empty.Media>
-            <Empty.Title>选择左侧 Provider</Empty.Title>
-            <Empty.Description>或者新建一个上游服务。</Empty.Description>
+            <Empty.Title>{t('providers.empty.selectTitle')}</Empty.Title>
+            <Empty.Description>{t('providers.empty.selectDescription')}</Empty.Description>
           </Empty.Header>
         </Empty.Root>
       </Card.Content>
@@ -747,20 +788,26 @@
 <Dialog.Root bind:open={createOpen}>
   <Dialog.Content class="sm:max-w-md">
     <Dialog.Header>
-      <Dialog.Title>添加 Provider</Dialog.Title>
+      <Dialog.Title>{t('providers.create.title')}</Dialog.Title>
       <Dialog.Description>
-        先填写名称，创建后在详情页补齐地址、认证与策略配置。
+        {t('providers.create.description')}
       </Dialog.Description>
     </Dialog.Header>
     <div class="grid gap-1.5">
-      <Label for="c-name">名称</Label>
-      <Input id="c-name" bind:value={createName} placeholder="deepseek-official" />
+      <Label for="c-name">{t('providers.basic.name')}</Label>
+      <Input
+        id="c-name"
+        bind:value={createName}
+        placeholder={t('providers.basic.namePlaceholder')}
+      />
     </div>
     <Dialog.Footer>
-      <Button variant="outline" onclick={() => (createOpen = false)}>取消</Button>
+      <Button variant="outline" onclick={() => (createOpen = false)}
+        >{t('common.action.cancel')}</Button
+      >
       <Button onclick={createProvider} disabled={!createName.trim()}>
         <PlusIcon />
-        创建
+        {t('common.action.create')}
       </Button>
     </Dialog.Footer>
   </Dialog.Content>
@@ -768,8 +815,8 @@
 
 <ConfirmDialog
   bind:open={() => !!deleteTarget, (value) => !value && (deleteTarget = null)}
-  title="删除 Provider"
-  description={`确定删除 ${deleteTarget?.name || ''}？其下模型会一并删除，被虚拟模型的 target 引用时会阻止删除。`}
+  title={t('providers.delete.title')}
+  description={t('providers.delete.description', { name: deleteTarget?.name || '' })}
   busy={deleting}
   onconfirm={remove}
 />

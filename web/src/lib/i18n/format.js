@@ -31,12 +31,24 @@ export function formatTime(value) {
   return date.toLocaleString(intlLocale(), { hour12: false });
 }
 
-/** Time of day only, used by the "last updated" hints. */
+/** Time of day with seconds, used by the "last updated" hints. */
 export function formatTimeOfDay(value) {
   if (!value) return EMPTY;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return EMPTY;
   return date.toLocaleTimeString(intlLocale(), { hour12: false });
+}
+
+/** Hour and minute only, for chart axes where seconds add noise. */
+export function formatHourMinute(value) {
+  if (!value) return EMPTY;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return EMPTY;
+  return date.toLocaleTimeString(intlLocale(), {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
 }
 
 /** Duration in milliseconds, switching to seconds above one second. */

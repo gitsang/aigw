@@ -19,9 +19,10 @@ export default {
     withoutVirtualModel: 'with no virtual model of the same name:',
     step1: '1. Walk the enabled provider models in order;',
     step2: '2. Take the first model whose public id contains that string, e.g.',
+    step2Tail: ';',
     step3: "3. Send the upstream request with that model's protocol, path, retry and proxy settings."
   },
-  note: 'Existing virtual models always win; automatic matching is only a fallback and never writes a virtual model. The request log marks such rows with',
-  noteKey: 'auto-match',
-  noteTail: 'in virtual_model_name for auditing.'
+  note: 'Existing virtual models always win; automatic matching is only a fallback and never writes a virtual model. The request log records ',
+  noteKey: ' as ',
+  noteTail: ' for auditing.'
 };

@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { api, fmtTime } from '$lib/api';
+  import { t } from '$lib/i18n/index.svelte.js';
   import { toast } from 'svelte-sonner';
 
   import PlusIcon from '@lucide/svelte/icons/plus';
@@ -44,6 +45,22 @@
   let deleteTarget = $state(null);
   let deleting = $state(false);
   let copied = $state(false);
+
+  /** Dialog title and description, keyed by the current dialog mode. */
+  const dialogTitle = $derived(
+    createdKey
+      ? t('keys.dialog.createdTitle')
+      : editingId
+        ? t('keys.dialog.editTitle')
+        : t('keys.dialog.createTitle')
+  );
+  const dialogDescription = $derived(
+    createdKey ? t('keys.dialog.createdDescription') : t('keys.dialog.formDescription')
+  );
+  const deleteTitle = $derived(t('keys.delete.title'));
+  const deleteDescription = $derived(
+    t('keys.delete.description', { name: deleteTarget?.name || '' })
+  );
 
   async function load() {
     loading = true;
@@ -92,7 +109,7 @@
       };
       if (editingId) {
         await api(`/api/admin/keys/${editingId}`, { method: 'PUT', body: JSON.stringify(payload) });
-        toast.success('API Key 已更新');
+        toast.success(t('keys.toast.updated'));
         modalOpen = false;
         await load();
       } else {
@@ -111,10 +128,10 @@
     try {
       await navigator.clipboard.writeText(createdKey);
       copied = true;
-      toast.success('已复制到剪贴板');
+      toast.success(t('keys.toast.copied'));
       setTimeout(() => (copied = false), 1600);
     } catch {
-      toast.error('复制失败，请手动选择复制');
+      toast.error(t('keys.toast.copyFailed'));
     }
   }
 
@@ -122,7 +139,7 @@
     deleting = true;
     try {
       await api(`/api/admin/keys/${deleteTarget.id}`, { method: 'DELETE' });
-      toast.success('API Key 已删除');
+      toast.success(t('keys.toast.deleted'));
       deleteTarget = null;
       await load();
     } catch (e) {
@@ -136,16 +153,16 @@
 </script>
 
 <svelte:head>
-  <title>API Keys · aigw</title>
+  <title>{t('keys.title')}</title>
 </svelte:head>
 
 <PageHeader
-  title="API Keys"
-  description="客户端使用这些 Key 调用网关。Key 仅展示一次，数据库只保存 SHA-256 哈希。"
+  title={t('keys.heading')}
+  description={t('keys.description')}
 >
   <Button onclick={openCreate}>
     <PlusIcon />
-    创建 API Key
+    {t('keys.create')}
   </Button>
 </PageHeader>
 
@@ -159,23 +176,23 @@
 <Card.Root class="gap-0">
   <Card.Header class="border-b">
     <div class="flex items-center justify-between gap-2">
-      <Card.Title class="text-sm">密钥列表</Card.Title>
-      <StatusBadge tone="neutral">{keys.length} 个</StatusBadge>
+      <Card.Title class="text-sm">{t('keys.list.title')}</Card.Title>
+      <StatusBadge tone="neutral">{t('keys.list.count', { count: keys.length })}</StatusBadge>
     </div>
   </Card.Header>
   <Card.Content class="px-0">
     <Table.Root>
       <Table.Header>
         <Table.Row>
-          <Table.Head>名称</Table.Head>
-          <Table.Head>App</Table.Head>
-          <Table.Head>Key Prefix</Table.Head>
-          <Table.Head>允许模型</Table.Head>
-          <Table.Head>状态</Table.Head>
-          <Table.Head>最后使用</Table.Head>
-          <Table.Head>过期时间</Table.Head>
-          <Table.Head>创建时间</Table.Head>
-          <Table.Head class="text-right">操作</Table.Head>
+          <Table.Head>{t('keys.column.name')}</Table.Head>
+          <Table.Head>{t('keys.column.app')}</Table.Head>
+          <Table.Head>{t('keys.column.keyPrefix')}</Table.Head>
+          <Table.Head>{t('keys.column.allowedModels')}</Table.Head>
+          <Table.Head>{t('keys.column.status')}</Table.Head>
+          <Table.Head>{t('keys.column.lastUsed')}</Table.Head>
+          <Table.Head>{t('keys.column.expiresAt')}</Table.Head>
+          <Table.Head>{t('keys.column.createdAt')}</Table.Head>
+          <Table.Head class="text-right">{t('keys.column.actions')}</Table.Head>
         </Table.Row>
       </Table.Header>
       <Table.Body>
@@ -193,16 +210,17 @@
               <Empty.Root class="border-0 py-10">
                 <Empty.Header>
                   <Empty.Media variant="icon"><KeyRoundIcon /></Empty.Media>
-                  <Empty.Title>还没有 API Key</Empty.Title>
+                  <Empty.Title>{t('keys.empty.title')}</Empty.Title>
                   <Empty.Description>
-                    创建后即可通过 <code class="font-mono">Authorization: Bearer aigw_...</code>
-                    调用网关。
+                    {t('keys.empty.descriptionBefore')}
+                    <code class="font-mono">Authorization: Bearer aigw_...</code>
+                    {t('keys.empty.descriptionAfter')}
                   </Empty.Description>
                 </Empty.Header>
                 <Empty.Content>
                   <Button variant="outline" onclick={openCreate}>
                     <PlusIcon />
-                    创建 API Key
+                    {t('keys.create')}
                   </Button>
                 </Empty.Content>
               </Empty.Root>
@@ -224,19 +242,19 @@
                     {/each}
                   </div>
                 {:else}
-                  <span class="text-[11px] text-muted-foreground">全部模型</span>
+                  <span class="text-[11px] text-muted-foreground">{t('keys.allModels')}</span>
                 {/if}
               </Table.Cell>
               <Table.Cell>
                 <StatusBadge tone={item.enabled ? 'success' : 'neutral'} dot>
-                  {item.enabled ? '启用' : '停用'}
+                  {item.enabled ? t('common.state.enabled') : t('common.state.disabled')}
                 </StatusBadge>
               </Table.Cell>
               <Table.Cell class="whitespace-nowrap text-[11px] tabular-nums">
-                {item.last_used_at ? fmtTime(item.last_used_at) : '从未'}
+                {item.last_used_at ? fmtTime(item.last_used_at) : t('keys.never')}
               </Table.Cell>
               <Table.Cell class="whitespace-nowrap text-[11px] tabular-nums">
-                {item.expires_at ? fmtTime(item.expires_at) : '永不过期'}
+                {item.expires_at ? fmtTime(item.expires_at) : t('keys.noExpiry')}
               </Table.Cell>
               <Table.Cell class="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground">
                 {fmtTime(item.created_at)}
@@ -268,12 +286,10 @@
   <Dialog.Content class={createdKey ? 'sm:max-w-xl' : 'sm:max-w-md'}>
     <Dialog.Header>
       <Dialog.Title>
-        {createdKey ? 'API Key 已创建' : editingId ? '编辑 API Key' : '创建 API Key'}
+        {dialogTitle}
       </Dialog.Title>
       <Dialog.Description>
-        {createdKey
-          ? '请立即复制并妥善保存，关闭后无法再次查看完整 Key。'
-          : '配置名称、业务标识、可用模型范围与有效期。'}
+        {dialogDescription}
       </Dialog.Description>
     </Dialog.Header>
 
@@ -284,17 +300,17 @@
           <Button size="sm" variant="outline" onclick={copyKey}>
             {#if copied}
               <CheckIcon />
-              已复制
+              {t('keys.dialog.copied')}
             {:else}
               <CopyIcon />
-              复制
+              {t('common.action.copy')}
             {/if}
           </Button>
         </div>
         <div class="space-y-1.5">
           <div class="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
             <TerminalIcon class="size-3.5" />
-            调用示例
+            {t('keys.dialog.example')}
           </div>
           <pre
             class="overflow-x-auto rounded-lg border bg-muted/50 p-2.5 font-mono text-[10.5px] leading-relaxed text-muted-foreground">{`curl http://localhost:8080/v1/chat/completions \\
@@ -306,16 +322,20 @@
     {:else}
       <div class="grid gap-3">
         <div class="grid gap-1.5">
-          <Label for="k-name">名称</Label>
-          <Input id="k-name" bind:value={form.name} placeholder="production-app" />
+          <Label for="k-name">{t('keys.form.name')}</Label>
+          <Input
+            id="k-name"
+            bind:value={form.name}
+            placeholder={t('keys.form.namePlaceholder')}
+          />
         </div>
         <div class="grid gap-1.5">
-          <Label for="k-app">App / 业务标识</Label>
-          <Input id="k-app" bind:value={form.app} placeholder="my-app" />
-          <p class="text-[10.5px] text-muted-foreground">会展示在日志与统计中，便于按业务筛选。</p>
+          <Label for="k-app">{t('keys.form.app')}</Label>
+          <Input id="k-app" bind:value={form.app} placeholder={t('keys.form.appPlaceholder')} />
+          <p class="text-[10.5px] text-muted-foreground">{t('keys.form.appHint')}</p>
         </div>
         <div class="grid gap-1.5">
-          <Label for="k-models">允许的模型（逗号分隔，留空允许全部）</Label>
+          <Label for="k-models">{t('keys.form.allowedModels')}</Label>
           <Input
             id="k-models"
             class="font-mono text-[11px]"
@@ -324,14 +344,14 @@
           />
         </div>
         <div class="grid gap-1.5">
-          <Label for="k-expires">过期时间（可选）</Label>
+          <Label for="k-expires">{t('keys.form.expiresAt')}</Label>
           <Input id="k-expires" type="datetime-local" bind:value={form.expires_at} />
         </div>
         <Separator />
         <div class="flex items-center justify-between gap-2">
           <div class="space-y-0.5">
-            <div class="text-xs font-medium">启用该 Key</div>
-            <div class="text-[10.5px] text-muted-foreground">停用后客户端立即无法访问</div>
+            <div class="text-xs font-medium">{t('keys.form.enabled')}</div>
+            <div class="text-[10.5px] text-muted-foreground">{t('keys.form.enabledHint')}</div>
           </div>
           <Switch bind:checked={form.enabled} />
         </div>
@@ -340,16 +360,18 @@
 
     <Dialog.Footer>
       {#if createdKey}
-        <Button onclick={() => (modalOpen = false)}>完成</Button>
+        <Button onclick={() => (modalOpen = false)}>{t('keys.dialog.done')}</Button>
       {:else}
-        <Button variant="outline" onclick={() => (modalOpen = false)} disabled={saving}>取消</Button>
+        <Button variant="outline" onclick={() => (modalOpen = false)} disabled={saving}>
+          {t('common.action.cancel')}
+        </Button>
         <Button onclick={save} disabled={saving || !form.name}>
           {#if saving}
             <Spinner class="size-3.5" />
-            保存中…
+            {t('common.state.saving')}
           {:else}
             <CheckIcon />
-            保存
+            {t('common.action.save')}
           {/if}
         </Button>
       {/if}
@@ -359,8 +381,8 @@
 
 <ConfirmDialog
   bind:open={() => !!deleteTarget, (value) => !value && (deleteTarget = null)}
-  title="删除 API Key"
-  description={`确定删除 ${deleteTarget?.name || ''}？使用该 Key 的客户端将立即无法访问。`}
+  title={deleteTitle}
+  description={deleteDescription}
   busy={deleting}
   onconfirm={remove}
 />

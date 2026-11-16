@@ -1,6 +1,8 @@
 <script>
   import { onMount } from 'svelte';
   import { api, fmtTime } from '$lib/api';
+  import { t } from '$lib/i18n/index.svelte.js';
+  import { formatPrice } from '$lib/i18n/format.js';
 
   import SearchIcon from '@lucide/svelte/icons/search';
   import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
@@ -8,7 +10,6 @@
   import LayersIcon from '@lucide/svelte/icons/layers';
   import RouteIcon from '@lucide/svelte/icons/route';
   import BoxIcon from '@lucide/svelte/icons/box';
-  import PowerIcon from '@lucide/svelte/icons/power';
 
   import * as Card from '$lib/components/ui/card/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -66,20 +67,13 @@
     }
   }
 
-  function money(value) {
-    return Number(value || 0).toLocaleString('en-US', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 6
-    });
-  }
-
   function priceText(model) {
     const cost = model.cost;
     if (!cost) return '';
     const input = Number(cost.input) || 0;
     const output = Number(cost.output) || 0;
     if (input === 0 && output === 0) return '';
-    return `${money(input)} / ${money(output)}`;
+    return `${formatPrice(input)} / ${formatPrice(output)}`;
   }
 
   function hasTiers(model) {
@@ -90,23 +84,35 @@
 </script>
 
 <svelte:head>
-  <title>Models · aigw</title>
+  <title>{t('models.title')}</title>
 </svelte:head>
 
-<PageHeader
-  title="Models"
-  description="网关可用的全部模型：Virtual Model 页创建的虚拟模型，以及 Provider 提供的模型（对外 ID 为 provider/model）。此页是只读目录，创建与编辑请到 Virtual Model 或 Model Provider。"
->
+<PageHeader title={t('models.heading')} description={t('models.description')}>
   <Button variant="outline" size="sm" onclick={load} disabled={loading}>
     <RefreshCwIcon class={loading ? 'animate-spin' : ''} />
-    刷新
+    {t('common.action.refresh')}
   </Button>
 </PageHeader>
 
 <div class="grid gap-3 sm:grid-cols-3">
-  <StatCard label="全部模型" value={models.length} hint="虚拟模型 + Provider 模型" icon={LayersIcon} />
-  <StatCard label="虚拟模型" value={virtualModelCount} hint="客户端请求时可用的模型名" icon={RouteIcon} />
-  <StatCard label="Provider 模型" value={providerCount} hint={`${offlineCount} 个不可用`} icon={BoxIcon} />
+  <StatCard
+    label={t('models.stats.all')}
+    value={models.length}
+    hint={t('models.stats.allHint')}
+    icon={LayersIcon}
+  />
+  <StatCard
+    label={t('models.stats.virtual')}
+    value={virtualModelCount}
+    hint={t('models.stats.virtualHint')}
+    icon={RouteIcon}
+  />
+  <StatCard
+    label={t('models.stats.provider')}
+    value={providerCount}
+    hint={t('models.stats.providerHint', { count: offlineCount })}
+    icon={BoxIcon}
+  />
 </div>
 
 {#if error}
@@ -122,9 +128,9 @@
       <div class="flex flex-wrap items-center gap-2">
         <Tabs.Root bind:value={kind}>
           <Tabs.List>
-            <Tabs.Trigger value="all">全部</Tabs.Trigger>
-            <Tabs.Trigger value="virtual_model">虚拟模型</Tabs.Trigger>
-            <Tabs.Trigger value="provider">Provider 模型</Tabs.Trigger>
+            <Tabs.Trigger value="all">{t('models.tab.all')}</Tabs.Trigger>
+            <Tabs.Trigger value="virtual_model">{t('models.tab.virtual')}</Tabs.Trigger>
+            <Tabs.Trigger value="provider">{t('models.tab.provider')}</Tabs.Trigger>
           </Tabs.List>
         </Tabs.Root>
         <StatusBadge tone="neutral">{visible.length} / {models.length}</StatusBadge>
@@ -133,7 +139,7 @@
         <InputGroup.Root>
           <InputGroup.Addon><SearchIcon /></InputGroup.Addon>
           <InputGroup.Input
-            placeholder="搜索模型 ID / 名称 / Provider"
+            placeholder={t('models.searchPlaceholder')}
             bind:value={search}
             class="text-[11px]"
           />
@@ -145,14 +151,14 @@
     <Table.Root>
       <Table.Header>
         <Table.Row>
-          <Table.Head>模型 ID</Table.Head>
-          <Table.Head>来源</Table.Head>
-          <Table.Head>Provider / 名称</Table.Head>
-          <Table.Head>协议</Table.Head>
-          <Table.Head class="text-right">上下文</Table.Head>
-          <Table.Head class="text-right">价格 / 1M</Table.Head>
-          <Table.Head>状态</Table.Head>
-          <Table.Head>创建时间</Table.Head>
+          <Table.Head>{t('models.column.modelId')}</Table.Head>
+          <Table.Head>{t('models.column.source')}</Table.Head>
+          <Table.Head>{t('models.column.providerName')}</Table.Head>
+          <Table.Head>{t('models.column.protocol')}</Table.Head>
+          <Table.Head class="text-right">{t('models.column.context')}</Table.Head>
+          <Table.Head class="text-right">{t('models.column.price')}</Table.Head>
+          <Table.Head>{t('models.column.status')}</Table.Head>
+          <Table.Head>{t('models.column.createdAt')}</Table.Head>
         </Table.Row>
       </Table.Header>
       <Table.Body>
@@ -171,12 +177,12 @@
                 <Empty.Header>
                   <Empty.Media variant="icon"><LayersIcon /></Empty.Media>
                   <Empty.Title>
-                    {models.length ? '没有匹配的模型' : '还没有可用模型'}
+                    {models.length ? t('models.empty.noMatchTitle') : t('models.empty.noneTitle')}
                   </Empty.Title>
                   <Empty.Description>
                     {models.length
-                      ? '调整搜索词或来源筛选后重试。'
-                      : '先在 Model Provider 添加 Provider 与模型，或到 Virtual Model 页创建虚拟模型。'}
+                      ? t('models.empty.noMatchDescription')
+                      : t('models.empty.noneDescription')}
                   </Empty.Description>
                 </Empty.Header>
               </Empty.Root>
@@ -194,11 +200,13 @@
               <Table.Cell>
                 <div class="flex flex-wrap items-center gap-1">
                   {#if model.kind === 'virtual_model'}
-                    <StatusBadge tone="violet">虚拟模型</StatusBadge>
+                    <StatusBadge tone="violet">{t('models.source.virtual')}</StatusBadge>
                   {:else}
-                    <StatusBadge tone="info">Provider</StatusBadge>
+                    <StatusBadge tone="info">{t('models.source.provider')}</StatusBadge>
                     <span class="text-[10px] text-muted-foreground">
-                      {model.source === 'discovered' ? '自动同步' : '手动'}
+                      {model.source === 'discovered'
+                        ? t('models.source.discovered')
+                        : t('models.source.manual')}
                     </span>
                   {/if}
                 </div>
@@ -207,7 +215,7 @@
                 {#if model.kind === 'virtual_model'}
                   <div class="truncate text-[11px]">{model.virtual_model_name || model.id}</div>
                   <div class="text-[10px] text-muted-foreground">
-                    {model.target_count} 个 target
+                    {t('models.targets', { count: model.target_count })}
                   </div>
                 {:else}
                   <div class="truncate text-[11px]">{model.provider_name}</div>
@@ -235,9 +243,9 @@
                   </div>
                   <div class="text-[10px] text-muted-foreground">
                     {#if hasTiers(model)}
-                      含 {model.cost.tiers.length} 个阶梯
+                      {t('models.tiers', { count: model.cost.tiers.length })}
                     {:else}
-                      输入 / 输出
+                      {t('models.priceHint')}
                     {/if}
                   </div>
                 {:else}
@@ -246,11 +254,11 @@
               </Table.Cell>
               <Table.Cell>
                 {#if model.enabled}
-                  <StatusBadge tone="success" dot>可用</StatusBadge>
+                  <StatusBadge tone="success" dot>{t('models.status.available')}</StatusBadge>
                 {:else if model.kind === 'provider' && !model.provider_enabled}
-                  <StatusBadge tone="neutral">Provider 停用</StatusBadge>
+                  <StatusBadge tone="neutral">{t('models.status.providerDisabled')}</StatusBadge>
                 {:else}
-                  <StatusBadge tone="neutral">停用</StatusBadge>
+                  <StatusBadge tone="neutral">{t('models.status.disabled')}</StatusBadge>
                 {/if}
               </Table.Cell>
               <Table.Cell class="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground">

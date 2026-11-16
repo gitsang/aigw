@@ -1,3 +1,5 @@
+import { t } from '$lib/i18n/index.svelte.js';
+
 /**
  * Parse a token budget such as "256K", "1M" or "131072".
  *
@@ -110,41 +112,41 @@ export function modelToPayload(form) {
 /** Validate an editable model row, returning a list of messages. */
 export function validateModel(form) {
   const errors = [];
-  if (!(form.model_id || '').trim()) errors.push('请填写模型 ID');
+  if (!(form.model_id || '').trim()) errors.push(t('models.form.modelIdRequired'));
 
-  for (const [label, value] of [
-    ['上下文窗口', form.context_window],
-    ['最大输出', form.max_output_tokens]
+  for (const [labelKey, value] of [
+    ['models.form.contextWindow', form.context_window],
+    ['models.form.maxOutput', form.max_output_tokens]
   ]) {
     if (String(value ?? '').trim() === '') continue;
     if (Number.isNaN(parseTokenBudget(value))) {
-      errors.push(`${label}格式无效，支持 131072、256K、1M`);
+      errors.push(t('models.form.invalidBudget', { label: t(labelKey) }));
     }
   }
 
   const currency = (form.cost?.currency || '').toUpperCase();
   if (!/^[A-Z]{3}$/.test(currency)) {
-    errors.push('币种必须是 3 位 ISO 4217 代码，如 USD、CNY');
+    errors.push(t('models.form.currencyInvalid'));
   }
 
-  for (const [name, value] of [
-    ['输入', form.cost?.input],
-    ['输出', form.cost?.output],
-    ['缓存读取', form.cost?.cache_read],
-    ['缓存写入', form.cost?.cache_write]
+  for (const [nameKey, value] of [
+    ['models.form.price.input', form.cost?.input],
+    ['models.form.price.output', form.cost?.output],
+    ['models.form.price.cacheRead', form.cost?.cache_read],
+    ['models.form.price.cacheWrite', form.cost?.cache_write]
   ]) {
-    if (Number(value) < 0) errors.push(`${name}价格不能为负数`);
+    if (Number(value) < 0) errors.push(t('models.form.negativePrice', { name: t(nameKey) }));
   }
 
   let previous = -1;
   (form.cost?.tiers || []).forEach((tier, index) => {
     const threshold = parseTokenBudget(tier.input_tokens_above);
     if (Number.isNaN(threshold) || threshold <= 0) {
-      errors.push(`阶梯 ${index + 1}：输入 token 阈值无效`);
+      errors.push(t('models.form.tierThresholdInvalid', { index: index + 1 }));
       return;
     }
     if (threshold <= previous) {
-      errors.push('阶梯阈值必须递增');
+      errors.push(t('models.form.tierThresholdsAscending'));
     }
     previous = threshold;
   });

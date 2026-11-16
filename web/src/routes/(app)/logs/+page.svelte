@@ -14,7 +14,9 @@
   import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
   import InboxIcon from '@lucide/svelte/icons/inbox';
 
-  import { api, fmtCost, fmtLatency, fmtNumber, fmtTime } from '$lib/api';
+  import { api, fmtCost, fmtLatency, fmtNumber, fmtTime, fmtTimeOfDay } from '$lib/api';
+  import { formatHourMinute } from '$lib/i18n/format.js';
+  import { t } from '$lib/i18n/index.svelte.js';
   import * as Card from '$lib/components/ui/card/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
@@ -33,17 +35,17 @@
   import StatusBadge from '$lib/components/app/status-badge.svelte';
 
   const RANGES = [
-    { value: '1h', label: '近 1 小时' },
-    { value: '24h', label: '近 24 小时' },
-    { value: '7d', label: '近 7 天' },
-    { value: '30d', label: '近 30 天' }
+    { value: '1h', labelKey: 'logs.range.1h' },
+    { value: '24h', labelKey: 'logs.range.24h' },
+    { value: '7d', labelKey: 'logs.range.7d' },
+    { value: '30d', labelKey: 'logs.range.30d' }
   ];
 
   const API_TYPES = ['chat.completions', 'responses', 'messages'];
 
-  const chartConfig = {
-    requests: { label: '请求数', color: 'var(--chart-2)' }
-  };
+  const chartConfig = $derived({
+    requests: { label: t('logs.chart.requests'), color: 'var(--chart-2)' }
+  });
 
   let range = $state('24h');
   let stats = $state(null);
@@ -64,6 +66,7 @@
   );
   const pages = $derived(Math.max(1, Math.ceil(total / limit)));
   const page = $derived(Math.floor(offset / limit) + 1);
+  const activeRange = $derived(RANGES.find((item) => item.value === range) ?? RANGES[1]);
   const series = $derived(
     (stats?.recent_series || []).map((point) => ({
       date: new Date(point.time),
@@ -143,21 +146,23 @@
 </script>
 
 <svelte:head>
-  <title>日志与统计 · aigw</title>
+  <title>{t('logs.title')}</title>
 </svelte:head>
 
 <PageHeader
-  title="日志与统计"
-  description="统一观测所有 API 调用、路由尝试、token 用量与成本。数据每 15 秒自动刷新。"
+  title={t('logs.heading')}
+  description={t('logs.description')}
 >
   <span class="flex items-center gap-1.5 text-[11px] text-muted-foreground">
     <span class="size-1.5 rounded-full bg-emerald-500 shadow-[0_0_0_3px] shadow-emerald-500/20"
     ></span>
-    {lastUpdated ? `更新于 ${lastUpdated.toLocaleTimeString('zh-CN', { hour12: false })}` : '加载中…'}
+    {lastUpdated
+      ? t('logs.updatedAt', { time: fmtTimeOfDay(lastUpdated) })
+      : t('common.state.loading')}
   </span>
   <Button variant="outline" size="sm" onclick={refresh} disabled={loading}>
     <RefreshCwIcon class={loading ? 'animate-spin' : ''} />
-    刷新
+    {t('common.action.refresh')}
   </Button>
 </PageHeader>
 
@@ -172,7 +177,7 @@
   <Tabs.Root bind:value={range} class="w-fit">
     <Tabs.List>
       {#each RANGES as item (item.value)}
-        <Tabs.Trigger value={item.value} class="px-2.5">{item.label}</Tabs.Trigger>
+        <Tabs.Trigger value={item.value} class="px-2.5">{t(item.labelKey)}</Tabs.Trigger>
       {/each}
     </Tabs.List>
   </Tabs.Root>
@@ -185,33 +190,36 @@
 
 <section class="grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-5">
   <StatCard
-    label="总请求"
+    label={t('logs.stats.totalRequests')}
     value={fmtNumber(stats?.total_requests)}
-    hint={`成功率 ${successRate}%`}
+    hint={t('logs.stats.successRate', { rate: successRate })}
     icon={ActivityIcon}
   />
   <StatCard
-    label="Token 总量"
+    label={t('logs.stats.totalTokens')}
     value={fmtNumber(stats?.total_tokens)}
-    hint={`输入 ${fmtNumber(stats?.prompt_tokens)} / 输出 ${fmtNumber(stats?.completion_tokens)}`}
+    hint={t('logs.stats.tokenBreakdown', {
+      input: fmtNumber(stats?.prompt_tokens),
+      output: fmtNumber(stats?.completion_tokens)
+    })}
     icon={HashIcon}
   />
   <StatCard
-    label="总成本"
+    label={t('logs.stats.totalCost')}
     value={fmtCost(stats?.total_cost)}
-    hint="按模型单价估算"
+    hint={t('logs.stats.costHint')}
     icon={CoinsIcon}
   />
   <StatCard
-    label="平均延迟"
+    label={t('logs.stats.avgLatency')}
     value={fmtLatency(stats?.avg_latency_ms)}
-    hint={`P95 ${fmtLatency(stats?.p95_latency_ms)}`}
+    hint={t('logs.stats.p95', { value: fmtLatency(stats?.p95_latency_ms) })}
     icon={GaugeIcon}
   />
   <StatCard
-    label="失败请求"
+    label={t('logs.stats.failedRequests')}
     value={fmtNumber(stats?.failed_requests)}
-    hint={stats?.failed_requests ? '可在下方日志中排查' : '全部请求成功'}
+    hint={stats?.failed_requests ? t('logs.stats.failedHint') : t('logs.stats.allSucceeded')}
     icon={TriangleAlertIcon}
   />
 </section>
@@ -221,10 +229,10 @@
     <Card.Header>
       <div class="flex items-start justify-between gap-2">
         <div class="space-y-0.5">
-          <Card.Title class="text-sm">请求趋势</Card.Title>
-          <Card.Description class="text-[11px]">按小时聚合的请求量</Card.Description>
+          <Card.Title class="text-sm">{t('logs.trend.title')}</Card.Title>
+          <Card.Description class="text-[11px]">{t('logs.trend.description')}</Card.Description>
         </div>
-        <StatusBadge tone="primary">{RANGES.find((r) => r.value === range)?.label}</StatusBadge>
+        <StatusBadge tone="primary">{t(activeRange.labelKey)}</StatusBadge>
       </div>
     </Card.Header>
     <Card.Content>
@@ -236,17 +244,12 @@
             data={series}
             x="date"
             xScale={scaleTime()}
-            series={[{ key: 'requests', label: '请求数', color: 'var(--chart-2)' }]}
+            series={[{ key: 'requests', label: t('logs.chart.requests'), color: 'var(--chart-2)' }]}
             axis="x"
             props={{
               area: { fillOpacity: 0.3, line: { class: 'stroke-1' }, motion: 'tween' },
               xAxis: {
-                format: (v) =>
-                  new Date(v).toLocaleTimeString('zh-CN', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                  })
+                format: (v) => formatHourMinute(v)
               }
             }}
           >
@@ -254,7 +257,8 @@
               <Chart.Tooltip
                 indicator="line"
                 labelFormatter={(v) => fmtTime(v)}
-                formatter={(value) => `${fmtNumber(value)} 次`}
+                formatter={(value) =>
+                  t('logs.chart.requestCount', { count: fmtNumber(value) })}
               />
             {/snippet}
           </AreaChart>
@@ -263,8 +267,8 @@
         <Empty.Root class="h-[210px] border">
           <Empty.Header>
             <Empty.Media variant="icon"><InboxIcon /></Empty.Media>
-            <Empty.Title>暂无趋势数据</Empty.Title>
-            <Empty.Description>当前时间窗口内还没有请求。</Empty.Description>
+            <Empty.Title>{t('logs.trend.emptyTitle')}</Empty.Title>
+            <Empty.Description>{t('logs.trend.emptyDescription')}</Empty.Description>
           </Empty.Header>
         </Empty.Root>
       {/if}
@@ -274,8 +278,8 @@
   <Card.Root class="gap-2">
     <Card.Header>
       <div class="space-y-0.5">
-        <Card.Title class="text-sm">模型分布</Card.Title>
-        <Card.Description class="text-[11px]">请求量 Top 6</Card.Description>
+        <Card.Title class="text-sm">{t('logs.models.title')}</Card.Title>
+        <Card.Description class="text-[11px]">{t('logs.models.description')}</Card.Description>
       </div>
     </Card.Header>
     <Card.Content>
@@ -297,7 +301,7 @@
         <Empty.Root class="border py-8">
           <Empty.Header>
             <Empty.Media variant="icon"><ActivityIcon /></Empty.Media>
-            <Empty.Title>暂无模型数据</Empty.Title>
+            <Empty.Title>{t('logs.models.emptyTitle')}</Empty.Title>
           </Empty.Header>
         </Empty.Root>
       {/if}
@@ -309,23 +313,26 @@
   <Card.Header class="gap-3">
     <div class="flex flex-wrap items-center justify-between gap-2">
       <div class="flex items-center gap-2">
-        <Card.Title class="text-sm">调用日志</Card.Title>
-        <StatusBadge tone="neutral">共 {fmtNumber(total)} 条</StatusBadge>
+        <Card.Title class="text-sm">{t('logs.table.title')}</Card.Title>
+        <StatusBadge tone="neutral">{t('logs.table.totalCount', { count: fmtNumber(total) })}</StatusBadge>
       </div>
       <span class="text-[11px] text-muted-foreground">
-        第 {page} / {pages} 页 · 每页 {limit} 条
+        {t('logs.table.pageInfo', { page, pages, limit })}
       </span>
     </div>
 
     <form class="grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(200px,1.6fr)_minmax(150px,1fr)_minmax(120px,1fr)_minmax(120px,1fr)_auto_auto]" onsubmit={applyFilters}>
       <InputGroup.Root>
         <InputGroup.Addon><SearchIcon /></InputGroup.Addon>
-        <InputGroup.Input placeholder="搜索 model / app / key / request id" bind:value={filters.search} />
+        <InputGroup.Input
+          placeholder={t('logs.table.searchPlaceholder')}
+          bind:value={filters.search}
+        />
       </InputGroup.Root>
 
       <Select.Root type="single" bind:value={filters.api_type}>
         <Select.Trigger class="w-full">
-          <Select.Value placeholder="全部 API" />
+          <Select.Value placeholder={t('logs.table.allApis')} />
         </Select.Trigger>
         <Select.Content>
           {#each API_TYPES as name (name)}
@@ -337,8 +344,10 @@
       <Input placeholder="model" bind:value={filters.model} />
       <Input placeholder="app" bind:value={filters.app} />
 
-      <Button type="submit" disabled={loading}>查询</Button>
-      <Button type="button" variant="ghost" onclick={resetFilters}>重置</Button>
+      <Button type="submit" disabled={loading}>{t('common.action.search')}</Button>
+      <Button type="button" variant="ghost" onclick={resetFilters}>
+        {t('common.action.reset')}
+      </Button>
     </form>
   </Card.Header>
 
@@ -346,16 +355,16 @@
     <Table.Root>
       <Table.Header>
         <Table.Row>
-          <Table.Head>时间</Table.Head>
-          <Table.Head>Model</Table.Head>
-          <Table.Head>协议</Table.Head>
-          <Table.Head>调用方</Table.Head>
-          <Table.Head>Provider / 虚拟模型</Table.Head>
-          <Table.Head class="text-right">延迟</Table.Head>
-          <Table.Head class="text-right">Tokens</Table.Head>
-          <Table.Head class="text-right">成本</Table.Head>
-          <Table.Head>状态</Table.Head>
-          <Table.Head>尝试</Table.Head>
+          <Table.Head>{t('logs.table.column.time')}</Table.Head>
+          <Table.Head>{t('logs.table.column.model')}</Table.Head>
+          <Table.Head>{t('logs.table.column.protocol')}</Table.Head>
+          <Table.Head>{t('logs.table.column.caller')}</Table.Head>
+          <Table.Head>{t('logs.table.column.providerAndModel')}</Table.Head>
+          <Table.Head class="text-right">{t('logs.table.column.latency')}</Table.Head>
+          <Table.Head class="text-right">{t('logs.table.column.tokens')}</Table.Head>
+          <Table.Head class="text-right">{t('logs.table.column.cost')}</Table.Head>
+          <Table.Head>{t('logs.table.column.status')}</Table.Head>
+          <Table.Head>{t('logs.table.column.attempts')}</Table.Head>
         </Table.Row>
       </Table.Header>
       <Table.Body>
@@ -373,9 +382,9 @@
               <Empty.Root class="border-0 py-10">
                 <Empty.Header>
                   <Empty.Media variant="icon"><InboxIcon /></Empty.Media>
-                  <Empty.Title>暂无日志</Empty.Title>
+                  <Empty.Title>{t('logs.table.emptyTitle')}</Empty.Title>
                   <Empty.Description>
-                    通过网关发起一次调用后，即可在这里看到完整请求链路。
+                    {t('logs.table.emptyDescription')}
                   </Empty.Description>
                 </Empty.Header>
               </Empty.Root>
@@ -406,7 +415,7 @@
                 <div class="truncate text-[11px]">{log.provider_name || '—'}</div>
                 <div class="truncate text-[10px] text-muted-foreground">
                   {log.virtual_model_name || '—'}
-                  {#if log.fallback_used}<span class="text-amber-600 dark:text-amber-400">· fallback</span>{/if}
+                  {#if log.fallback_used}<span class="text-amber-600 dark:text-amber-400">· {t('logs.table.fallback')}</span>{/if}
                 </div>
               </Table.Cell>
               <Table.Cell class="text-right font-mono text-[11px] tabular-nums">
@@ -430,7 +439,7 @@
                 <div class="flex items-center gap-1">
                   <span class="font-mono text-[11px] tabular-nums">{log.attempt_count}</span>
                   {#if log.stream}
-                    <StatusBadge tone="violet">stream</StatusBadge>
+                    <StatusBadge tone="violet">{t('logs.table.stream')}</StatusBadge>
                   {/if}
                 </div>
               </Table.Cell>
@@ -453,12 +462,12 @@
 
   <Card.Footer class="justify-between">
     <span class="text-[11px] text-muted-foreground">
-      共 {fmtNumber(total)} 条 · 当前 {fmtNumber(logs.length)} 条
+      {t('logs.table.footerInfo', { total: fmtNumber(total), shown: fmtNumber(logs.length) })}
     </span>
     <div class="flex items-center gap-1.5">
       <Button variant="outline" size="sm" disabled={offset === 0 || loading} onclick={() => goPage(-1)}>
         <ArrowLeftIcon />
-        上一页
+        {t('logs.table.previous')}
       </Button>
       <Button
         variant="outline"
@@ -466,7 +475,7 @@
         disabled={offset + limit >= total || loading}
         onclick={() => goPage(1)}
       >
-        下一页
+        {t('logs.table.next')}
         <ArrowRightIcon />
       </Button>
     </div>

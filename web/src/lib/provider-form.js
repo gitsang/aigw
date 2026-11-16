@@ -1,4 +1,5 @@
 import { api } from '$lib/api';
+import { t } from '$lib/i18n/index.svelte.js';
 import { blankAPISchema, apiSchemaToForm, formToAPISchema } from './api-schema.js';
 
 /** Empty provider form, mirroring the admin API payload. */
@@ -84,26 +85,30 @@ export function formToPayload(form) {
  */
 export function validateProvider(form) {
   const errors = [];
-  if (!form.name.trim()) errors.push({ tab: 'basic', message: '请填写名称' });
+  if (!form.name.trim()) {
+    errors.push({ tab: 'basic', message: t('providers.validation.nameRequired') });
+  }
   if (!form.base_url.trim()) {
-    errors.push({ tab: 'basic', message: '请填写 Base URL' });
+    errors.push({ tab: 'basic', message: t('providers.validation.baseUrlRequired') });
   } else if (!/^https?:\/\//i.test(form.base_url.trim())) {
-    errors.push({ tab: 'basic', message: 'Base URL 必须以 http:// 或 https:// 开头' });
+    errors.push({ tab: 'basic', message: t('providers.validation.baseUrlScheme') });
   }
   const enabledProtocols = Object.values(form.api_schema || {}).filter((entry) => entry.enabled);
-  if (!enabledProtocols.length) errors.push({ tab: 'basic', message: '至少启用一种上游协议' });
+  if (!enabledProtocols.length) {
+    errors.push({ tab: 'basic', message: t('providers.validation.protocolsRequired') });
+  }
 
   if (form.proxy_type && form.proxy_type !== 'none' && !form.proxy_url.trim()) {
-    errors.push({ tab: 'proxy', message: '启用代理时必须填写代理 URL' });
+    errors.push({ tab: 'proxy', message: t('providers.validation.proxyUrlRequired') });
   }
   if (form.retry_count < 0 || form.retry_count > 20) {
-    errors.push({ tab: 'request', message: '重试次数必须在 0-20 之间' });
+    errors.push({ tab: 'request', message: t('providers.validation.retryCountRange') });
   }
   if (form.retry_initial_ms < 0 || form.retry_max_ms < 0) {
-    errors.push({ tab: 'request', message: '退避时间不能为负数' });
+    errors.push({ tab: 'request', message: t('providers.validation.backoffNonNegative') });
   }
   if (form.retry_backoff === 'exponential' && form.retry_max_ms < form.retry_initial_ms) {
-    errors.push({ tab: 'request', message: '最大退避不能小于基础退避' });
+    errors.push({ tab: 'request', message: t('providers.validation.backoffMaxLessThanInitial') });
   }
   return errors;
 }
@@ -134,7 +139,9 @@ export function formatDuration(ms) {
   const value = Number(ms) || 0;
   if (value <= 0) return '—';
   if (value < 1000) return `${value}ms`;
-  if (value % 60000 === 0) return `${value / 60000} 分钟`;
+  if (value % 60000 === 0) {
+    return t('providers.duration.minutes', { value: value / 60000 });
+  }
   if (value < 60000) return `${Number((value / 1000).toFixed(1))}s`;
   return `${Math.round(value / 1000)}s`;
 }
