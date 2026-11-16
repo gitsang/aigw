@@ -2,6 +2,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { api, setToken } from '$lib/api';
+  import { t } from '$lib/i18n/index.svelte.js';
   import * as Card from '$lib/components/ui/card/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
@@ -9,6 +10,7 @@
   import { Alert, AlertDescription } from '$lib/components/ui/alert/index.js';
   import { Spinner } from '$lib/components/ui/spinner/index.js';
   import ThemeToggle from '$lib/components/app/theme-toggle.svelte';
+  import LocaleToggle from '$lib/components/app/locale-toggle.svelte';
   import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
   import ZapIcon from '@lucide/svelte/icons/zap';
   import ShuffleIcon from '@lucide/svelte/icons/shuffle';
@@ -19,9 +21,9 @@
   const next = $derived(page.url.searchParams.get('next') || '/logs');
 
   const highlights = [
-    { icon: ZapIcon, label: '统一 LLM 入口，多协议互转' },
-    { icon: ShuffleIcon, label: '加权负载均衡与自动 fallback' },
-    { icon: CoinsIcon, label: '逐请求 token 与成本核算' }
+    { icon: ZapIcon, labelKey: 'auth.highlight.unified' },
+    { icon: ShuffleIcon, labelKey: 'auth.highlight.routing' },
+    { icon: CoinsIcon, labelKey: 'auth.highlight.cost' }
   ];
 
   let token = $state('');
@@ -38,7 +40,7 @@
       goto(next);
     } catch (e) {
       setToken('');
-      error = e.message || '登录失败';
+      error = e.message || t('auth.failed');
     } finally {
       busy = false;
     }
@@ -46,11 +48,12 @@
 </script>
 
 <svelte:head>
-  <title>登录 · aigw</title>
+  <title>{t('auth.title')}</title>
 </svelte:head>
 
 <div class="grid min-h-svh place-items-center bg-muted/30 p-4">
-  <div class="absolute right-4 top-4">
+  <div class="absolute right-4 top-4 flex items-center gap-1">
+    <LocaleToggle />
     <ThemeToggle />
   </div>
 
@@ -73,24 +76,24 @@
             <div class="leading-tight">
               <div class="text-sm font-semibold tracking-tight">aigw</div>
               <div class="text-[10px] uppercase tracking-[0.18em] text-emerald-100/70">
-                AI Gateway
+                {t('app.brand')}
               </div>
             </div>
           </div>
           <div class="space-y-1.5">
             <h1 class="text-xl font-semibold leading-tight tracking-tight">
-              一个入口，<br />管理所有 LLM 流量
+              {t('auth.heroTitleLine1')}<br />{t('auth.heroTitleLine2')}
             </h1>
             <p class="text-xs leading-relaxed text-emerald-50/80">
-              OpenAI / Anthropic 双协议互通，健康检查、重试与成本观测开箱即用。
+              {t('auth.heroSubtitle')}
             </p>
           </div>
         </div>
         <ul class="relative space-y-2.5">
-          {#each highlights as item (item.label)}
+          {#each highlights as item (item.labelKey)}
             <li class="flex items-center gap-2 text-xs text-emerald-50/90">
               <item.icon class="size-3.5 shrink-0 text-emerald-200" />
-              <span>{item.label}</span>
+              <span>{t(item.labelKey)}</span>
             </li>
           {/each}
         </ul>
@@ -100,22 +103,23 @@
         <div class="space-y-1">
           <div class="flex items-center gap-2">
             <ShieldCheckIcon class="size-4 text-primary" />
-            <h2 class="text-sm font-semibold tracking-tight">管理控制台登录</h2>
+            <h2 class="text-sm font-semibold tracking-tight">{t('auth.heading')}</h2>
           </div>
           <p class="text-xs text-muted-foreground">
-            输入服务端配置的 <code class="rounded bg-muted px-1 py-0.5 font-mono">server.admin_token</code>。
+            {t('auth.hint')}
+            <code class="rounded bg-muted px-1 py-0.5 font-mono">{t('auth.hintConfigKey')}</code>.
           </p>
         </div>
 
         <form class="space-y-4" onsubmit={submit}>
           <div class="grid gap-1.5">
-            <Label for="token">Admin Token</Label>
+            <Label for="token">{t('auth.tokenLabel')}</Label>
             <Input
               id="token"
               type="password"
               bind:value={token}
               autocomplete="current-password"
-              placeholder="admin token"
+              placeholder={t('auth.tokenPlaceholder')}
               class="h-9"
             />
           </div>
@@ -130,9 +134,9 @@
           <Button type="submit" class="h-9 w-full gap-2" disabled={busy || !token.trim()}>
             {#if busy}
               <Spinner class="size-3.5" />
-              验证中…
+              {t('auth.verifying')}
             {:else}
-              进入控制台
+              {t('auth.submit')}
               <ArrowRightIcon />
             {/if}
           </Button>
@@ -140,7 +144,7 @@
 
         <div class="flex items-center gap-2 text-[11px] text-muted-foreground">
           <span class="size-1.5 rounded-full bg-emerald-500"></span>
-          Token 仅保存在浏览器本地，不会写入服务端。
+          {t('auth.localOnly')}
         </div>
       </div>
     </div>

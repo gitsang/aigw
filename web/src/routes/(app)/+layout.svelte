@@ -5,12 +5,14 @@
 
   import { getToken } from '$lib/api';
   import { navItemFor } from '$lib/nav.js';
+  import { t } from '$lib/i18n/index.svelte.js';
   import * as Sidebar from '$lib/components/ui/sidebar/index.js';
   import * as Breadcrumb from '$lib/components/ui/breadcrumb/index.js';
   import { Separator } from '$lib/components/ui/separator/index.js';
   import { Spinner } from '$lib/components/ui/spinner/index.js';
   import AppSidebar from '$lib/components/app/app-sidebar.svelte';
   import ThemeToggle from '$lib/components/app/theme-toggle.svelte';
+  import LocaleToggle from '$lib/components/app/locale-toggle.svelte';
 
   let { children } = $props();
 
@@ -21,7 +23,8 @@
     else ready = true;
   });
 
-  const current = $derived(navItemFor(page.url.pathname)?.label ?? '控制台');
+  const navItem = $derived(navItemFor(page.url.pathname));
+  const current = $derived(navItem ? t(navItem.labelKey) : t('nav.console'));
 </script>
 
 {#if ready}
@@ -36,7 +39,7 @@
         <Breadcrumb.Root>
           <Breadcrumb.List class="text-xs">
             <Breadcrumb.Item class="hidden sm:block">
-              <Breadcrumb.Link href="/logs">控制台</Breadcrumb.Link>
+              <Breadcrumb.Link href="/logs">{t('nav.console')}</Breadcrumb.Link>
             </Breadcrumb.Item>
             <Breadcrumb.Separator class="hidden sm:block" />
             <Breadcrumb.Item>
@@ -45,6 +48,7 @@
           </Breadcrumb.List>
         </Breadcrumb.Root>
         <div class="ml-auto flex items-center gap-1">
+          <LocaleToggle />
           <ThemeToggle />
         </div>
       </header>

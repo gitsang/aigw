@@ -18,6 +18,7 @@
 
   import PageHeader from '$lib/components/app/page-header.svelte';
   import StatusBadge from '$lib/components/app/status-badge.svelte';
+  import { t } from '$lib/i18n/index.svelte.js';
 
   let settings = $state({ auto_model_match: false });
   let loading = $state(true);
@@ -46,7 +47,7 @@
         method: 'PUT',
         body: JSON.stringify(settings)
       });
-      toast.success(next ? '已开启自动模型匹配' : '已关闭自动模型匹配');
+      toast.success(next ? t('settings.autoMatch.enabledToast') : t('settings.autoMatch.disabledToast'));
     } catch (e) {
       settings = { ...settings, auto_model_match: previous };
       toast.error(e.message);
@@ -59,12 +60,12 @@
 </script>
 
 <svelte:head>
-  <title>Settings · aigw</title>
+  <title>{t('settings.title')}</title>
 </svelte:head>
 
 <PageHeader
-  title="Settings"
-  description="网关级运行配置。修改立即生效，无需重启服务。"
+  title={t('settings.heading')}
+  description={t('settings.description')}
 />
 
 {#if error}
@@ -81,62 +82,60 @@
     <Card.Header class="border-b">
       <div class="flex items-center gap-1.5">
         <SettingsIcon class="size-3.5 text-muted-foreground" />
-        <Card.Title class="text-sm">模型自动匹配</Card.Title>
+        <Card.Title class="text-sm">{t('settings.autoMatch.title')}</Card.Title>
       </div>
       <Card.Description class="text-[11px]">
-        控制请求模型名没有匹配到虚拟模型时网关的行为。
+        {t('settings.autoMatch.description')}
       </Card.Description>
     </Card.Header>
     <Card.Content class="space-y-3 pt-3">
       <div class="flex flex-wrap items-start justify-between gap-3 rounded-lg border p-3">
         <div class="min-w-0 space-y-1">
           <div class="flex flex-wrap items-center gap-1.5">
-            <span class="text-xs font-medium">自动模型匹配</span>
+            <span class="text-xs font-medium">{t('settings.autoMatch.label')}</span>
             <StatusBadge tone={settings.auto_model_match ? 'success' : 'neutral'} dot>
-              {settings.auto_model_match ? '已开启' : '已关闭'}
+              {settings.auto_model_match ? t('settings.autoMatch.on') : t('settings.autoMatch.off')}
             </StatusBadge>
             {#if saving}
               <Spinner class="size-3" />
             {/if}
           </div>
           <p class="max-w-2xl text-[11px] leading-relaxed text-muted-foreground">
-            开启后，当请求的模型名没有对应虚拟模型时，网关会按 Provider 顺序查找第一个
-            <span class="font-mono">包含此模型名</span> 的 Provider 模型（对外 ID 为
-            <span class="font-mono">provider/model</span>），并直接转发到该上游。
+            {t('settings.autoMatch.body')}
           </p>
         </div>
         <Switch
           checked={settings.auto_model_match}
           onCheckedChange={toggleAutoModelMatch}
           disabled={saving}
-          aria-label="自动模型匹配"
+          aria-label={t('settings.autoMatch.label')}
         />
       </div>
 
       <div class="rounded-lg border bg-muted/30 p-3">
         <div class="mb-1.5 flex items-center gap-1.5">
           <RouteIcon class="size-3.5 text-muted-foreground" />
-          <span class="text-xs font-medium">匹配示例</span>
+          <span class="text-xs font-medium">{t('settings.example.title')}</span>
         </div>
         <ul class="space-y-1 text-[11px] leading-relaxed text-muted-foreground">
           <li>
-            请求模型
+            {t('settings.example.requestModel')}
             <code class="rounded bg-background px-1 font-mono text-[10.5px]"
               >deepseek/deepseek-flash</code
             >
-            且没有同名虚拟模型时：
+            {t('settings.example.withoutVirtualModel')}
           </li>
           <li class="pl-4">
-            1. 依次遍历已启用的 Provider 模型；
+            {t('settings.example.step1')}
           </li>
           <li class="pl-4">
-            2. 取第一个对外 ID 包含该字符串的模型，例如
+            {t('settings.example.step2')}
             <code class="rounded bg-background px-1 font-mono text-[10.5px]"
               >yllm/deepseek/deepseek-flash</code
-            >；
+            >;
           </li>
           <li class="pl-4">
-            3. 使用该模型的 Provider 协议、Path、重试与代理配置发起上游请求。
+            {t('settings.example.step3')}
           </li>
         </ul>
       </div>
@@ -146,15 +145,17 @@
       <Alert>
         <LayersIcon />
         <AlertDescription>
-          已存在的虚拟模型始终优先；自动匹配只在其后兜底，且不会写入任何虚拟模型。
-          请求日志中的 <span class="font-mono">virtual_model_name</span> 会标记为
-          <span class="font-mono">auto-match</span>，便于审计。
+          {t('settings.note')}
+          <span class="font-mono">virtual_model_name</span>
+          {t('settings.noteKey')}
+          <span class="font-mono">auto-match</span>
+          {t('settings.noteTail')}
         </AlertDescription>
       </Alert>
     </Card.Content>
     <Card.Footer class="justify-end border-t">
       <Button variant="outline" size="sm" onclick={load} disabled={loading || saving}>
-        重新加载
+        {t('common.action.reload')}
       </Button>
     </Card.Footer>
   </Card.Root>

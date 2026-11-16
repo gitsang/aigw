@@ -5,14 +5,17 @@ import RouteIcon from '@lucide/svelte/icons/route';
 import KeyRoundIcon from '@lucide/svelte/icons/key-round';
 import SettingsIcon from '@lucide/svelte/icons/settings';
 
-/** Console navigation entries, shared by the sidebar and breadcrumb. */
+/**
+ * Console navigation entries, shared by the sidebar and breadcrumb.
+ * `labelKey` is resolved against the active locale by the consumer.
+ */
 export const navItems = [
-  { href: '/logs', label: '日志与统计', icon: ChartLineIcon },
-  { href: '/models', label: 'Models', icon: LayersIcon },
-  { href: '/providers', label: 'Model Provider', icon: BoxesIcon },
-  { href: '/virtual-models', label: 'Virtual Model', icon: RouteIcon },
-  { href: '/keys', label: 'API Keys', icon: KeyRoundIcon },
-  { href: '/settings', label: 'Settings', icon: SettingsIcon }
+  { href: '/logs', labelKey: 'nav.logs', icon: ChartLineIcon },
+  { href: '/models', labelKey: 'nav.models', icon: LayersIcon },
+  { href: '/providers', labelKey: 'nav.providers', icon: BoxesIcon },
+  { href: '/virtual-models', labelKey: 'nav.virtualModels', icon: RouteIcon },
+  { href: '/keys', labelKey: 'nav.keys', icon: KeyRoundIcon },
+  { href: '/settings', labelKey: 'nav.settings', icon: SettingsIcon }
 ];
 
 /** Resolve the nav entry that matches the current pathname. */

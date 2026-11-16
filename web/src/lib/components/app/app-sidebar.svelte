@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { setToken } from '$lib/api';
   import { navItems } from '$lib/nav.js';
+  import { t } from '$lib/i18n/index.svelte.js';
   import * as Sidebar from '$lib/components/ui/sidebar/index.js';
   import LogOutIcon from '@lucide/svelte/icons/log-out';
 
@@ -31,7 +32,7 @@
                 <span
                   class="truncate text-[10px] uppercase tracking-[0.14em] text-muted-foreground"
                 >
-                  AI Gateway
+                  {t('app.brand')}
                 </span>
               </div>
             </a>
@@ -43,19 +44,19 @@
 
   <Sidebar.Content>
     <Sidebar.Group>
-      <Sidebar.GroupLabel>控制台</Sidebar.GroupLabel>
+      <Sidebar.GroupLabel>{t('app.sidebarGroup')}</Sidebar.GroupLabel>
       <Sidebar.GroupContent>
         <Sidebar.Menu>
           {#each navItems as item (item.href)}
             <Sidebar.MenuItem>
               <Sidebar.MenuButton
                 isActive={current === item.href || current.startsWith(`${item.href}/`)}
-                tooltipContent={item.label}
+                tooltipContent={t(item.labelKey)}
               >
                 {#snippet child({ props })}
                   <a href={item.href} {...props}>
                     <item.icon />
-                    <span>{item.label}</span>
+                    <span>{t(item.labelKey)}</span>
                   </a>
                 {/snippet}
               </Sidebar.MenuButton>
@@ -69,9 +70,9 @@
   <Sidebar.Footer class="border-t border-sidebar-border">
     <Sidebar.Menu>
       <Sidebar.MenuItem>
-        <Sidebar.MenuButton size="sm" tooltipContent="退出管理" onclick={logout}>
+        <Sidebar.MenuButton size="sm" tooltipContent={t('app.logout')} onclick={logout}>
           <LogOutIcon />
-          <span>退出管理</span>
+          <span>{t('app.logout')}</span>
         </Sidebar.MenuButton>
       </Sidebar.MenuItem>
     </Sidebar.Menu>
