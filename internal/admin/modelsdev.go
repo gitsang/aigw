@@ -97,7 +97,7 @@ func (h *Handler) lookupModelPrices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.modelsDev == nil {
-		writeError(w, http.StatusServiceUnavailable, "models.dev 同步未启用")
+		writeError(w, http.StatusServiceUnavailable, "models.dev sync is not enabled")
 		return
 	}
 	providerID := chi.URLParam(r, "id")
@@ -126,7 +126,7 @@ func (h *Handler) syncModelPrices(w http.ResponseWriter, r *http.Request) {
 	dryRun := req.DryRun == nil || *req.DryRun
 	source := strings.TrimSpace(req.SourceProvider)
 	if h.modelsDev == nil {
-		writeError(w, http.StatusServiceUnavailable, "models.dev 同步未启用")
+		writeError(w, http.StatusServiceUnavailable, "models.dev sync is not enabled")
 		return
 	}
 	providerID := chi.URLParam(r, "id")
@@ -351,7 +351,7 @@ func samePriceSnapshot(a, b priceSnapshot) bool {
 func (h *Handler) failModelsDev(w http.ResponseWriter, err error) {
 	if errors.Is(err, modelsdev.ErrFetch) {
 		h.log.Warn("models.dev lookup failed", "error", err)
-		writeError(w, http.StatusBadGateway, "models.dev 同步失败: "+err.Error())
+		writeError(w, http.StatusBadGateway, "models.dev sync failed: "+err.Error())
 		return
 	}
 	h.fail(w, err)

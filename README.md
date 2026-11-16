@@ -259,12 +259,13 @@ is never part of `api_schema`.
 The models tab has two price-sync entry points backed by the
 [models.dev](https://models.dev/) catalog (USD per 1M tokens):
 
-- **Per model** — `从 models.dev 同步` in the price section of the model editor
-  fills in input/output/cache prices, tiered pricing, and any missing context
-  window / max output tokens. Nothing is written until the model is saved.
-- **Per provider** — `同步价格` previews the whole model list (old price, new
-  price, source, action) and writes only after you confirm. Existing prices are
-  kept unless `overwrite` is enabled.
+- **Per model** — **Sync from models.dev** in the price section of the model
+  editor fills in input/output/cache prices, tiered pricing, and any missing
+  context window / max output tokens. Nothing is written until the model is
+  saved.
+- **Per provider** — **Sync prices** previews the whole model list (old price,
+  new price, source, action) and writes only after you confirm. Existing prices
+  are kept unless `overwrite` is enabled.
 
 Providers are matched to the catalog by slug, then by API base URL host, then by
 display name. Aggregators usually match none of these, and models.dev lists the
