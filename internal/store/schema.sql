@@ -8,14 +8,12 @@ CREATE TABLE IF NOT EXISTS providers (
     headers JSONB NOT NULL DEFAULT '{}'::jsonb,
     timeout_ms INTEGER NOT NULL DEFAULT 120000 CHECK (timeout_ms > 0),
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
-    api_types TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
-    path_overrides JSONB NOT NULL DEFAULT '{}'::jsonb,
+    api_schema JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-ALTER TABLE providers ADD COLUMN IF NOT EXISTS api_types TEXT[] NOT NULL DEFAULT '{}'::TEXT[];
-ALTER TABLE providers ADD COLUMN IF NOT EXISTS path_overrides JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS api_schema JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE providers DROP COLUMN IF EXISTS input_price_per_million;
 ALTER TABLE providers DROP COLUMN IF EXISTS output_price_per_million;
 
@@ -166,14 +164,84 @@ CREATE TABLE IF NOT EXISTS provider_models (
     model_id TEXT NOT NULL,
     display_name TEXT NOT NULL DEFAULT '',
     source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'discovered')),
-    api_types TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
-    path_overrides JSONB NOT NULL DEFAULT '{}'::jsonb,
+    api_schema JSONB NOT NULL DEFAULT '{}'::jsonb,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (provider_id, model_id)
 );
 CREATE INDEX IF NOT EXISTS idx_provider_models_provider_id ON provider_models(provider_id);
+ALTER TABLE provider_models ADD COLUMN IF NOT EXISTS api_schema JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+-- ------------------------------------------- protocol config → api_schema
+-- The protocol configuration used to be spread over two columns: an allow-list
+-- of protocols (`api_types`) and an optional path per protocol
+-- (`path_overrides`). It is now a single JSONB document per row:
+--
+--   {"chat.completions": {"enabled": true, "endpoint": ""},
+--    "responses":        {"enabled": true, "endpoint": "/v1/responses"},
+--    "messages":         {"enabled": false, "endpoint": ""}}
+--
+-- An empty document means "not configured": a provider then speaks the
+-- built-in defaults and a provider model inherits its provider. Fold the legacy
+-- columns into the new one, then retire them. The guard keeps this a no-op on
+-- databases that already migrated (or were created by this version).
+DO $$
+DECLARE
+    protocols CONSTANT TEXT[] := ARRAY['chat.completions','responses','messages'];
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'providers' AND column_name = 'api_types') THEN
+        UPDATE providers SET api_schema = legacy.api_schema
+        FROM (
+            SELECT p.id,
+                   CASE
+                       -- An empty allow-list meant "inherit the built-in
+                       -- defaults", so the new document stays empty too.
+                       WHEN COALESCE(array_length(p.api_types, 1), 0) = 0 THEN '{}'::jsonb
+                       ELSE (
+                           SELECT jsonb_object_agg(
+                               proto,
+                               jsonb_build_object(
+                                   'enabled', p.api_types @> ARRAY[proto],
+                                   'endpoint', COALESCE(p.path_overrides ->> proto, '')
+                               )
+                           )
+                           FROM unnest(protocols) AS proto
+                       )
+                   END AS api_schema
+            FROM providers p
+        ) AS legacy
+        WHERE providers.id = legacy.id AND providers.api_schema = '{}'::jsonb;
+        ALTER TABLE providers DROP COLUMN api_types;
+        ALTER TABLE providers DROP COLUMN path_overrides;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'provider_models' AND column_name = 'api_types') THEN
+        UPDATE provider_models SET api_schema = legacy.api_schema
+        FROM (
+            SELECT pm.id,
+                   CASE
+                       WHEN COALESCE(array_length(pm.api_types, 1), 0) = 0 THEN '{}'::jsonb
+                       ELSE (
+                           SELECT jsonb_object_agg(
+                               proto,
+                               jsonb_build_object(
+                                   'enabled', pm.api_types @> ARRAY[proto],
+                                   'endpoint', COALESCE(pm.path_overrides ->> proto, '')
+                               )
+                           )
+                           FROM unnest(protocols) AS proto
+                       )
+                   END AS api_schema
+            FROM provider_models pm
+        ) AS legacy
+        WHERE provider_models.id = legacy.id AND provider_models.api_schema = '{}'::jsonb;
+        ALTER TABLE provider_models DROP COLUMN api_types;
+        ALTER TABLE provider_models DROP COLUMN path_overrides;
+    END IF;
+END $$;
 
 ALTER TABLE virtual_model_targets
     ADD COLUMN IF NOT EXISTS provider_model_id UUID REFERENCES provider_models(id) ON DELETE SET NULL;

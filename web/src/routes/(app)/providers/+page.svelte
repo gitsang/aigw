@@ -42,7 +42,6 @@
   import ProviderModels from '$lib/components/app/provider-models.svelte';
 
   import {
-    API_FORMATS,
     blankProvider,
     providerToForm,
     formToPayload,
@@ -52,6 +51,7 @@
     rowsToMap,
     formatDuration
   } from '$lib/provider-form.js';
+  import { API_PROTOCOLS } from '$lib/api-schema.js';
 
   const AUTH_OPTIONS = [
     { value: 'bearer', label: 'Authorization: Bearer' },
@@ -92,7 +92,7 @@
   let deleting = $state(false);
 
   const selected = $derived(providers.find((p) => p.id === selectedId) ?? null);
-  // Any nested edit (API format toggles, header rows) changes this signature.
+  // Any nested edit (API protocol toggles, header rows) changes this signature.
   const signature = $derived(formSignature(form, headerRows));
   const dirty = $derived(baseline !== '' && signature !== baseline);
   const edited = $derived(
@@ -489,12 +489,12 @@
                 <div class="text-xs font-medium">上游协议</div>
                 <p class="mt-0.5 text-[10.5px] text-muted-foreground">
                   勾选该上游支持的协议（OpenAI Chat Completions / Responses / Anthropic
-                  Messages）；Path 留空则使用内置默认值。
+                  Messages）；Endpoint 留空则使用内置默认值。
                 </p>
               </div>
               <div class="space-y-1.5">
-                {#each API_FORMATS as protocol (protocol.value)}
-                  {@const entry = form.api_formats[protocol.value]}
+                {#each API_PROTOCOLS as protocol (protocol.value)}
+                  {@const entry = form.api_schema[protocol.value]}
                   <div
                     class="grid grid-cols-[150px_minmax(0,1fr)] items-center gap-2 rounded-md border px-2 py-1.5"
                     class:opacity-60={!entry.enabled}
@@ -505,10 +505,10 @@
                     </label>
                     <Input
                       class="h-7 font-mono text-[11px]"
-                      bind:value={entry.path}
-                      placeholder={protocol.defaultPath}
+                      bind:value={entry.endpoint}
+                      placeholder={protocol.defaultEndpoint}
                       disabled={!entry.enabled}
-                      aria-label={`${protocol.label} Path`}
+                      aria-label={`${protocol.label} Endpoint`}
                     />
                   </div>
                 {/each}

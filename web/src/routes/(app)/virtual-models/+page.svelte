@@ -27,13 +27,12 @@
   import StatusBadge from '$lib/components/app/status-badge.svelte';
   import ConfirmDialog from '$lib/components/app/confirm-dialog.svelte';
 
-  const APIS = [
-    ['chat.completions', 'Chat Completions'],
-    ['responses', 'Responses'],
-    ['messages', 'Messages']
-  ];
-  const PROTOCOL_NAMES = Object.fromEntries(APIS);
-  const apiLabel = (value) => PROTOCOL_NAMES[value] || value;
+  import {
+    API_PROTOCOLS,
+    apiSchemaLabel,
+    apiSchemaProtocols,
+    effectiveAPISchema
+  } from '$lib/api-schema.js';
 
   const blankTarget = (role = 'lb') => ({
     role,
@@ -178,27 +177,32 @@
       i === index ? { ...target, ...patch } : target
     );
   }
+  /** Effective API schema previewed for a target: mirrors the gateway
+   * resolution between the selected model and its provider. */
+  function previewSchema(target) {
+    return effectiveAPISchema(modelOf(target)?.api_schema, providerOf(target)?.api_schema);
+  }
   /** Protocols the selected upstream model (or its provider) can speak, in the
    * fixed order chat.completions → responses → messages. This is read-only: a
    * target always forwards the inbound protocol when the upstream supports it
    * and otherwise falls back to the first entry of this list. */
   function supportedProtocols(target) {
-    const model = modelOf(target);
-    const provider = providerOf(target);
-    const declared = model?.api_types?.length ? model.api_types : provider?.api_types || [];
-    return APIS.map(([value]) => value).filter((value) => declared.includes(value));
+    return apiSchemaProtocols(previewSchema(target));
   }
-  function targetPathHint(target) {
-    const model = modelOf(target);
-    const provider = providerOf(target);
+  /** Endpoint summary for an effective schema: only non-default endpoints are
+   * listed, everything else resolves to the built-in default. */
+  function endpointSummary(schema) {
     const parts = [];
-    for (const [key, value] of Object.entries(model?.path_overrides || {})) {
-      parts.push(`${apiLabel(key)}: ${value}`);
+    for (const protocol of API_PROTOCOLS) {
+      const entry = schema?.[protocol.value];
+      if (!entry?.enabled) continue;
+      if (entry.endpoint === protocol.defaultEndpoint) continue;
+      parts.push(`${apiSchemaLabel(protocol.value)}: ${entry.endpoint}`);
     }
-    for (const [key, value] of Object.entries(provider?.path_overrides || {})) {
-      if (!model?.path_overrides?.[key]) parts.push(`${apiLabel(key)}: ${value}`);
-    }
-    return parts.length ? parts.join('  ') : '内置默认 Path';
+    return parts.length ? parts.join('  ') : '内置默认 Endpoint';
+  }
+  function targetEndpointHint(target) {
+    return endpointSummary(previewSchema(target));
   }
   async function onProviderChange(index) {
     updateTarget(index, { provider_model_id: '', upstream_model: '' });
@@ -358,6 +362,7 @@
                 <span>健康</span>
               </div>
               {#each vm.targets as target, index (target.id ?? index)}
+                {@const protocols = apiSchemaProtocols(target.api_schema)}
                 <div
                   class="grid grid-cols-[70px_minmax(180px,1.4fr)_minmax(190px,1.1fr)_60px_minmax(140px,0.9fr)] items-center gap-2 border-t px-2.5 py-1.5 text-[11px]"
                   class:opacity-60={!target.enabled}
@@ -375,16 +380,12 @@
                   </div>
                   <div class="min-w-0">
                     <div class="truncate font-mono text-[10.5px]">
-                      {target.supported_api_types?.length
-                        ? target.supported_api_types.map(apiLabel).join(' · ')
+                      {protocols.length
+                        ? protocols.map(apiSchemaLabel).join(' · ')
                         : '继承模型 / Provider'}
                     </div>
                     <div class="truncate text-[10px] text-muted-foreground">
-                      {target.path_overrides && Object.keys(target.path_overrides).length
-                        ? Object.entries(target.path_overrides)
-                            .map(([key, value]) => `${apiLabel(key)} → ${value}`)
-                            .join('  ')
-                        : 'Provider / 内置 Path'}
+                      {endpointSummary(target.api_schema)}
                     </div>
                   </div>
                   <div class="text-right font-mono tabular-nums">
@@ -513,7 +514,7 @@
           <p class="mt-0.5 text-[10.5px] leading-relaxed text-muted-foreground">
             每个 target 不需要选择上游协议：入口请求按<b class="text-foreground">原协议</b>转发，
             上游不支持时按 <span class="font-mono">chat.completions → responses → messages</span>
-            的固定顺序取第一个可用协议并自动转换。协议由所选模型 / Provider 的配置决定，Path 同源。
+            的固定顺序取第一个可用协议并自动转换。协议由所选模型 / Provider 的配置决定，Endpoint 同源。
           </p>
         </div>
         <div class="flex items-center gap-1.5">
@@ -607,7 +608,7 @@
                 上游协议
               </span>
               {#each supportedProtocols(target) as name, i (name)}
-                <StatusBadge tone={i === 0 ? 'info' : 'neutral'}>{apiLabel(name)}</StatusBadge>
+                <StatusBadge tone={i === 0 ? 'info' : 'neutral'}>{apiSchemaLabel(name)}</StatusBadge>
               {/each}
               {#if !supportedProtocols(target).length}
                 <span class="text-[10px] text-muted-foreground">继承模型 / Provider</span>
@@ -615,7 +616,7 @@
               <span class="text-[10px] text-muted-foreground">（自动，无需配置）</span>
             </div>
             <div class="truncate font-mono text-[10px] text-muted-foreground">
-              Path: {targetPathHint(target)}
+              Endpoint: {targetEndpointHint(target)}
             </div>
             {#if target.provider_id && !modelsFor(target.provider_id).length}
               <div class="text-[10px] text-amber-600 dark:text-amber-400">

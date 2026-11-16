@@ -24,13 +24,7 @@
   import StatusBadge from '$lib/components/app/status-badge.svelte';
 
   import { formatTokenBudget } from '$lib/model-form.js';
-
-  const PROTOCOL_NAMES = {
-    'chat.completions': 'Chat',
-    responses: 'Responses',
-    messages: 'Messages'
-  };
-  const apiLabel = (value) => PROTOCOL_NAMES[value] || value;
+  import { apiSchemaLabel, apiSchemaProtocols } from '$lib/api-schema.js';
 
   let models = $state([]);
   let loading = $state(true);
@@ -224,8 +218,8 @@
               </Table.Cell>
               <Table.Cell>
                 <div class="flex flex-wrap gap-1">
-                  {#each model.api_types || [] as type (type)}
-                    <StatusBadge tone="neutral">{apiLabel(type)}</StatusBadge>
+                  {#each apiSchemaProtocols(model.api_schema) as type (type)}
+                    <StatusBadge tone="neutral">{apiSchemaLabel(type)}</StatusBadge>
                   {/each}
                 </div>
               </Table.Cell>

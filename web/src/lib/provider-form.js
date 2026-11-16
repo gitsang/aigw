@@ -1,18 +1,5 @@
 import { api } from '$lib/api';
-
-export const API_FORMATS = [
-  { value: 'chat.completions', label: 'Chat Completions', defaultPath: '/v1/chat/completions' },
-  { value: 'responses', label: 'Responses', defaultPath: '/v1/responses' },
-  { value: 'messages', label: 'Messages', defaultPath: '/v1/messages' }
-];
-
-export function apiFormatLabel(value) {
-  return API_FORMATS.find((p) => p.value === value)?.label ?? value;
-}
-
-export function apiFormatDefaultPath(value) {
-  return API_FORMATS.find((p) => p.value === value)?.defaultPath ?? '';
-}
+import { blankAPISchema, apiSchemaToForm, formToAPISchema } from './api-schema.js';
 
 /** Empty provider form, mirroring the admin API payload. */
 export function blankProvider() {
@@ -23,8 +10,8 @@ export function blankProvider() {
     base_url: '',
     auth_type: 'bearer',
     api_key: '',
-    // { 'chat.completions': { enabled, path }, ... }
-    api_formats: Object.fromEntries(API_FORMATS.map((p) => [p.value, { enabled: true, path: '' }])),
+    // { 'chat.completions': { enabled, endpoint }, ... }
+    api_schema: blankAPISchema(),
     headers: {},
     timeout_ms: 120000,
     retry_count: 0,
@@ -59,32 +46,14 @@ export function providerToForm(provider) {
   form.proxy_url = provider.proxy_url || '';
   form.proxy_username = provider.proxy_username || '';
   form.enabled = provider.enabled;
-  // Rehydrate configured API formats; a provider without an explicit list keeps
-  // every protocol enabled with the built-in default path.
-  const types = provider.api_types?.length
-    ? provider.api_types
-    : API_FORMATS.map((p) => p.value);
-  const overrides = provider.path_overrides || {};
-  form.api_formats = Object.fromEntries(
-    API_FORMATS.map((p) => [
-      p.value,
-      { enabled: types.includes(p.value), path: overrides[p.value] || '' }
-    ])
-  );
+  // Rehydrate the configured upstream protocols; a provider without an explicit
+  // schema keeps every protocol enabled with the built-in default endpoint.
+  form.api_schema = apiSchemaToForm(provider.api_schema);
   return form;
 }
 
 /** Convert the editable form back into the admin API payload. */
 export function formToPayload(form) {
-  const apiTypes = [];
-  const pathOverrides = {};
-  for (const protocol of API_FORMATS) {
-    const entry = form.api_formats?.[protocol.value];
-    if (!entry?.enabled) continue;
-    apiTypes.push(protocol.value);
-    const path = (entry.path || '').trim();
-    if (path) pathOverrides[protocol.value] = path;
-  }
   return {
     slug: (form.slug || '').trim(),
     name: form.name.trim(),
@@ -104,8 +73,7 @@ export function formToPayload(form) {
     proxy_username:
       form.proxy_type && form.proxy_type !== 'none' ? (form.proxy_username || '').trim() : '',
     proxy_password: form.proxy_password || '',
-    api_types: apiTypes,
-    path_overrides: pathOverrides,
+    api_schema: formToAPISchema(form.api_schema),
     enabled: form.enabled
   };
 }
@@ -122,8 +90,8 @@ export function validateProvider(form) {
   } else if (!/^https?:\/\//i.test(form.base_url.trim())) {
     errors.push({ tab: 'basic', message: 'Base URL 必须以 http:// 或 https:// 开头' });
   }
-  const enabledFormats = Object.values(form.api_formats || {}).filter((v) => v.enabled);
-  if (!enabledFormats.length) errors.push({ tab: 'basic', message: '至少启用一种上游协议' });
+  const enabledProtocols = Object.values(form.api_schema || {}).filter((entry) => entry.enabled);
+  if (!enabledProtocols.length) errors.push({ tab: 'basic', message: '至少启用一种上游协议' });
 
   if (form.proxy_type && form.proxy_type !== 'none' && !form.proxy_url.trim()) {
     errors.push({ tab: 'proxy', message: '启用代理时必须填写代理 URL' });

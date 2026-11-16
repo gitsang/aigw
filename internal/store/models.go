@@ -13,6 +13,24 @@ const (
 	RoleFallback = "fallback"
 )
 
+// APISchemaEntry is the configuration of one upstream protocol.
+//
+// Endpoint is the upstream path for that protocol; an empty Endpoint means the
+// built-in default (see DefaultEndpoint).
+type APISchemaEntry struct {
+	Enabled  bool   `json:"enabled"`
+	Endpoint string `json:"endpoint"`
+}
+
+// APISchema maps an upstream protocol name (chat.completions, responses,
+// messages) to its configuration.
+//
+// An empty map means "not configured": a provider then speaks the built-in
+// defaults, and a provider model inherits its provider. A non-empty map is the
+// complete list of protocols the upstream speaks — a protocol missing from it
+// is not supported.
+type APISchema map[string]APISchemaEntry
+
 // Proxy types accepted by a provider. An empty ProxyType disables the proxy.
 const (
 	ProxyNone   = ""
@@ -27,19 +45,18 @@ const (
 )
 
 type Provider struct {
-	ID            string            `json:"id"`
-	Slug          string            `json:"slug"`
-	Name          string            `json:"name"`
-	Description   string            `json:"description"`
-	BaseURL       string            `json:"base_url"`
-	AuthType      string            `json:"auth_type"`
-	APIKeyLast4   string            `json:"api_key_last4"`
-	HasAPIKey     bool              `json:"has_api_key"`
-	Headers       map[string]string `json:"headers"`
-	TimeoutMS     int               `json:"timeout_ms"`
-	APITypes      []string          `json:"api_types"`
-	PathOverrides map[string]string `json:"path_overrides"`
-	Enabled       bool              `json:"enabled"`
+	ID          string            `json:"id"`
+	Slug        string            `json:"slug"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	BaseURL     string            `json:"base_url"`
+	AuthType    string            `json:"auth_type"`
+	APIKeyLast4 string            `json:"api_key_last4"`
+	HasAPIKey   bool              `json:"has_api_key"`
+	Headers     map[string]string `json:"headers"`
+	TimeoutMS   int               `json:"timeout_ms"`
+	APISchema   APISchema         `json:"api_schema"`
+	Enabled     bool              `json:"enabled"`
 
 	// Per-provider request retry. RetryCount of 0 leaves the virtual model as the
 	// only retry layer.
@@ -61,17 +78,16 @@ type Provider struct {
 }
 
 type ProviderInput struct {
-	Slug          string            `json:"slug"`
-	Name          string            `json:"name"`
-	Description   string            `json:"description"`
-	BaseURL       string            `json:"base_url"`
-	AuthType      string            `json:"auth_type"`
-	APIKey        string            `json:"api_key"`
-	Headers       map[string]string `json:"headers"`
-	TimeoutMS     int               `json:"timeout_ms"`
-	APITypes      []string          `json:"api_types"`
-	PathOverrides map[string]string `json:"path_overrides"`
-	Enabled       *bool             `json:"enabled"`
+	Slug        string            `json:"slug"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	BaseURL     string            `json:"base_url"`
+	AuthType    string            `json:"auth_type"`
+	APIKey      string            `json:"api_key"`
+	Headers     map[string]string `json:"headers"`
+	TimeoutMS   int               `json:"timeout_ms"`
+	APISchema   APISchema         `json:"api_schema"`
+	Enabled     *bool             `json:"enabled"`
 
 	RetryCount            int    `json:"retry_count"`
 	RetryBackoff          string `json:"retry_backoff"`
@@ -86,22 +102,22 @@ type ProviderInput struct {
 }
 
 type VirtualModelTarget struct {
-	ID                    string            `json:"id"`
-	VirtualModelID        string            `json:"virtual_model_id"`
-	Role                  string            `json:"role"`
-	ProviderID            string            `json:"provider_id"`
-	ProviderName          string            `json:"provider_name"`
-	ProviderBaseURL       string            `json:"provider_base_url,omitempty"`
-	ProviderModelID       string            `json:"provider_model_id,omitempty"`
-	UpstreamModel         string            `json:"upstream_model"`
-	SupportedAPITypes     []string          `json:"supported_api_types,omitempty"`
-	PathOverrides         map[string]string `json:"path_overrides,omitempty"`
-	ProviderAPITypes      []string          `json:"provider_api_types,omitempty"`
-	ProviderPathOverrides map[string]string `json:"provider_path_overrides,omitempty"`
-	Weight                int               `json:"weight"`
-	Priority              int               `json:"priority"`
-	Enabled               bool              `json:"enabled"`
-	Health                *TargetHealth     `json:"health,omitempty"`
+	ID              string `json:"id"`
+	VirtualModelID  string `json:"virtual_model_id"`
+	Role            string `json:"role"`
+	ProviderID      string `json:"provider_id"`
+	ProviderName    string `json:"provider_name"`
+	ProviderBaseURL string `json:"provider_base_url,omitempty"`
+	ProviderModelID string `json:"provider_model_id,omitempty"`
+	UpstreamModel   string `json:"upstream_model"`
+	// APISchema is the resolved upstream schema of this target: every protocol
+	// with enabled reporting whether the upstream speaks it, and endpoint the
+	// final upstream path for the enabled ones.
+	APISchema APISchema     `json:"api_schema"`
+	Weight    int           `json:"weight"`
+	Priority  int           `json:"priority"`
+	Enabled   bool          `json:"enabled"`
+	Health    *TargetHealth `json:"health,omitempty"`
 }
 
 type TargetHealth struct {
@@ -179,30 +195,28 @@ func DefaultModelCost() ModelCost {
 
 // ProviderModel is one upstream model exposed by a provider.
 type ProviderModel struct {
-	ID              string            `json:"id"`
-	ProviderID      string            `json:"provider_id"`
-	ModelID         string            `json:"model_id"`
-	DisplayName     string            `json:"display_name"`
-	Source          string            `json:"source"`
-	APITypes        []string          `json:"api_types"`
-	PathOverrides   map[string]string `json:"path_overrides"`
-	ContextWindow   int               `json:"context_window"`
-	MaxOutputTokens int               `json:"max_output_tokens"`
-	Cost            ModelCost         `json:"cost"`
-	Enabled         bool              `json:"enabled"`
-	CreatedAt       time.Time         `json:"created_at"`
-	UpdatedAt       time.Time         `json:"updated_at"`
+	ID              string    `json:"id"`
+	ProviderID      string    `json:"provider_id"`
+	ModelID         string    `json:"model_id"`
+	DisplayName     string    `json:"display_name"`
+	Source          string    `json:"source"`
+	APISchema       APISchema `json:"api_schema"`
+	ContextWindow   int       `json:"context_window"`
+	MaxOutputTokens int       `json:"max_output_tokens"`
+	Cost            ModelCost `json:"cost"`
+	Enabled         bool      `json:"enabled"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type ProviderModelInput struct {
-	ModelID         string            `json:"model_id"`
-	DisplayName     string            `json:"display_name"`
-	APITypes        []string          `json:"api_types"`
-	PathOverrides   map[string]string `json:"path_overrides"`
-	ContextWindow   int               `json:"context_window"`
-	MaxOutputTokens int               `json:"max_output_tokens"`
-	Cost            ModelCost         `json:"cost"`
-	Enabled         *bool             `json:"enabled"`
+	ModelID         string    `json:"model_id"`
+	DisplayName     string    `json:"display_name"`
+	APISchema       APISchema `json:"api_schema"`
+	ContextWindow   int       `json:"context_window"`
+	MaxOutputTokens int       `json:"max_output_tokens"`
+	Cost            ModelCost `json:"cost"`
+	Enabled         *bool     `json:"enabled"`
 }
 
 // APITypeResolution is the effective protocol/path for one model or target.

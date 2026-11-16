@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// IsSupportedAPIType reports whether name is a known upstream protocol.
 func IsSupportedAPIType(name string) bool {
 	switch name {
 	case APIChatCompletions, APIResponses, APIMessages:
@@ -18,54 +19,134 @@ func IsSupportedAPIType(name string) bool {
 	return false
 }
 
-// DefaultAPITypes is the built-in protocol list used when a provider has not
-// configured its own list, in canonical preference order.
-func DefaultAPITypes() []string {
+// DefaultProtocols is the built-in protocol list in canonical fallback order.
+func DefaultProtocols() []string {
 	return []string{APIChatCompletions, APIResponses, APIMessages}
 }
 
-// CanonicalAPITypes returns the unique protocols of v in the canonical
-// preference order chat.completions → responses → messages. It is used wherever
-// protocols are displayed or compared, so the console never depends on the
-// order a provider list happened to be saved in.
-func CanonicalAPITypes(v []string) []string {
-	seen := map[string]bool{}
-	for _, item := range v {
-		seen[normalizeAPIType(item)] = true
+// DefaultEndpoint is the built-in upstream path of a protocol.
+func DefaultEndpoint(apiType string) string {
+	switch apiType {
+	case APIResponses:
+		return "/v1/responses"
+	case APIMessages:
+		return "/v1/messages"
+	default:
+		return "/v1/chat/completions"
 	}
-	out := make([]string, 0, len(seen))
-	for _, name := range DefaultAPITypes() {
-		if seen[name] {
+}
+
+// DefaultAPISchema is the schema used when nothing is configured: every
+// protocol enabled through its built-in endpoint.
+func DefaultAPISchema() APISchema {
+	out := make(APISchema, len(DefaultProtocols()))
+	for _, name := range DefaultProtocols() {
+		out[name] = APISchemaEntry{Enabled: true, Endpoint: DefaultEndpoint(name)}
+	}
+	return out
+}
+
+// Protocols returns the enabled protocols of the schema in canonical fallback
+// order chat.completions → responses → messages.
+func (s APISchema) Protocols() []string {
+	out := make([]string, 0, len(s))
+	for _, name := range DefaultProtocols() {
+		if entry, ok := s[name]; ok && entry.Enabled {
 			out = append(out, name)
 		}
 	}
 	return out
 }
 
-// SupportedAPITypes is the protocol list a provider model can speak.
-//
-// Precedence: model protocols > provider protocols > built-in defaults.
-func SupportedAPITypes(modelTypes, providerTypes []string) []string {
-	available := modelTypes
-	if len(available) == 0 {
-		available = providerTypes
+// normalizeAPISchema validates a caller-supplied schema and normalizes its
+// endpoints. Unknown protocols are rejected so a typo cannot silently disable a
+// protocol, and at least one protocol must stay enabled.
+func normalizeAPISchema(in APISchema) (APISchema, error) {
+	if len(in) == 0 {
+		return APISchema{}, nil
 	}
-	if len(available) == 0 {
-		return DefaultAPITypes()
+	out := make(APISchema, len(in))
+	enabled := 0
+	for name, entry := range in {
+		if !IsSupportedAPIType(name) {
+			return nil, fmt.Errorf("%w: unknown protocol %q in api_schema", ErrInvalid, name)
+		}
+		endpoint := strings.TrimSpace(entry.Endpoint)
+		if endpoint != "" && !strings.HasPrefix(endpoint, "/") {
+			endpoint = "/" + endpoint
+		}
+		if entry.Enabled {
+			enabled++
+		}
+		out[name] = APISchemaEntry{Enabled: entry.Enabled, Endpoint: endpoint}
 	}
-	return CanonicalAPITypes(available)
+	if enabled == 0 {
+		return nil, fmt.Errorf("%w: api_schema must enable at least one protocol", ErrInvalid)
+	}
+	return out, nil
 }
 
-// ChooseUpstreamAPIType picks the upstream protocol for an inbound request.
+// ResolveAPISchema merges the model schema over the provider schema over the
+// built-in defaults. The result always carries every protocol: Enabled reports
+// whether the upstream speaks it, and Endpoint is the path to use for the
+// enabled ones.
+//
+// Protocol support replaces wholesale: a non-empty model schema defines the set
+// of protocols the model speaks, otherwise the provider schema does, otherwise
+// all three are enabled. Endpoints fall back per protocol: model → provider →
+// built-in default.
+func ResolveAPISchema(model, provider APISchema) APISchema {
+	support := model
+	if len(support) == 0 {
+		support = provider
+	}
+	out := make(APISchema, 3)
+	for _, name := range DefaultProtocols() {
+		enabled := true
+		if len(support) > 0 {
+			declared, ok := support[name]
+			enabled = ok && declared.Enabled
+		}
+		if !enabled {
+			out[name] = APISchemaEntry{}
+			continue
+		}
+		endpoint := ""
+		if entry, ok := model[name]; ok {
+			endpoint = strings.TrimSpace(entry.Endpoint)
+		}
+		if endpoint == "" {
+			if entry, ok := provider[name]; ok {
+				endpoint = strings.TrimSpace(entry.Endpoint)
+			}
+		}
+		if endpoint == "" {
+			endpoint = DefaultEndpoint(name)
+		}
+		if !strings.HasPrefix(endpoint, "/") {
+			endpoint = "/" + endpoint
+		}
+		out[name] = APISchemaEntry{Enabled: true, Endpoint: endpoint}
+	}
+	return out
+}
+
+// ChooseUpstreamAPIType picks the upstream protocol for an inbound request from
+// an effective schema.
 //
 // The upstream protocol is not configurable per target: an inbound request is
 // forwarded with the protocol it arrived on whenever the upstream speaks it.
 // Otherwise the gateway falls back in the fixed order chat.completions →
 // responses → messages and takes the first protocol the upstream supports,
 // translating the payload as needed. An empty inbound protocol (used by the
-// health prober) takes the first supported protocol of that same order.
-func ChooseUpstreamAPIType(modelTypes, providerTypes []string, inbound string) string {
-	supported := SupportedAPITypes(modelTypes, providerTypes)
+// health prober) takes that same first protocol.
+func ChooseUpstreamAPIType(schema APISchema, inbound string) string {
+	supported := schema.Protocols()
+	if len(supported) == 0 {
+		// Nothing is enabled: let the request fail upstream rather than
+		// silently picking a protocol that is marked unsupported.
+		return APIChatCompletions
+	}
 	if inbound != "" {
 		for _, name := range supported {
 			if name == inbound {
@@ -76,22 +157,53 @@ func ChooseUpstreamAPIType(modelTypes, providerTypes []string, inbound string) s
 	return supported[0]
 }
 
-// ResolvePath returns the effective upstream path for a protocol.
-// Model override > provider override > protocol built-in default.
-func ResolvePath(modelOverrides, providerOverrides map[string]string, apiType string) string {
-	if p := strings.TrimSpace(modelOverrides[apiType]); p != "" {
-		return p
+// UnionAPISchemas merges effective schemas: a protocol is enabled when any
+// input enables it, and takes the endpoint of the first input that enables it.
+// It answers "can this virtual model serve protocol X?" across all its targets.
+func UnionAPISchemas(schemas []APISchema) APISchema {
+	out := make(APISchema, len(DefaultProtocols()))
+	for _, name := range DefaultProtocols() {
+		out[name] = APISchemaEntry{}
 	}
-	if p := strings.TrimSpace(providerOverrides[apiType]); p != "" {
-		return p
+	for _, schema := range schemas {
+		for name, entry := range schema {
+			if !entry.Enabled {
+				continue
+			}
+			current := out[name]
+			if !current.Enabled {
+				out[name] = APISchemaEntry{Enabled: true, Endpoint: entry.Endpoint}
+			}
+		}
 	}
-	return DefaultPath(apiType)
+	return out
+}
+
+// marshalAPISchema encodes a schema for a JSONB column.
+func marshalAPISchema(schema APISchema) []byte {
+	if len(schema) == 0 {
+		return []byte("{}")
+	}
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		return []byte("{}")
+	}
+	return raw
+}
+
+// decodeAPISchema decodes a JSONB column, never returning nil.
+func decodeAPISchema(raw []byte) APISchema {
+	out := APISchema{}
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &out)
+	}
+	return out
 }
 
 // --------------------------------------------------------- provider models
 
 const providerModelSelect = `
-SELECT id, provider_id, model_id, display_name, source, api_types, path_overrides,
+SELECT id, provider_id, model_id, display_name, source, api_schema,
        context_window, max_output_tokens,
        cost_currency, cost_input::float8, cost_output::float8,
        cost_cache_read::float8, cost_cache_write::float8, cost_tiers,
@@ -100,28 +212,22 @@ FROM provider_models`
 
 func scanProviderModel(row rowScanner) (ProviderModel, error) {
 	var m ProviderModel
-	var overrides, tiers []byte
+	var schema, tiers []byte
 	err := row.Scan(&m.ID, &m.ProviderID, &m.ModelID, &m.DisplayName, &m.Source,
-		&m.APITypes, &overrides, &m.ContextWindow, &m.MaxOutputTokens,
+		&schema, &m.ContextWindow, &m.MaxOutputTokens,
 		&m.Cost.Currency, &m.Cost.Input, &m.Cost.Output,
 		&m.Cost.CacheRead, &m.Cost.CacheWrite, &tiers,
 		&m.Enabled, &m.CreatedAt, &m.UpdatedAt)
 	if err != nil {
 		return m, err
 	}
-	m.PathOverrides = map[string]string{}
-	if len(overrides) > 0 {
-		_ = json.Unmarshal(overrides, &m.PathOverrides)
-	}
+	m.APISchema = decodeAPISchema(schema)
 	m.Cost.Tiers = []CostTier{}
 	if len(tiers) > 0 {
 		_ = json.Unmarshal(tiers, &m.Cost.Tiers)
 	}
 	if m.Cost.Currency == "" {
 		m.Cost.Currency = "USD"
-	}
-	if m.APITypes == nil {
-		m.APITypes = []string{}
 	}
 	return m, nil
 }
@@ -161,16 +267,11 @@ func normalizeModelInput(in ProviderModelInput) (ProviderModelInput, error) {
 	if in.DisplayName == "" {
 		in.DisplayName = in.ModelID
 	}
-	types := make([]string, 0, len(in.APITypes))
-	seen := map[string]bool{}
-	for _, t := range in.APITypes {
-		t = normalizeAPIType(t)
-		if !seen[t] {
-			seen[t] = true
-			types = append(types, t)
-		}
+	schema, err := normalizeAPISchema(in.APISchema)
+	if err != nil {
+		return in, err
 	}
-	in.APITypes = types
+	in.APISchema = schema
 	if in.ContextWindow < 0 || in.MaxOutputTokens < 0 {
 		return in, fmt.Errorf("%w: context_window and max_output_tokens must not be negative", ErrInvalid)
 	}
@@ -179,18 +280,6 @@ func normalizeModelInput(in ProviderModelInput) (ProviderModelInput, error) {
 		return in, err
 	}
 	in.Cost = cost
-	if in.PathOverrides == nil {
-		in.PathOverrides = map[string]string{}
-	}
-	for k, v := range in.PathOverrides {
-		if !IsSupportedAPIType(k) {
-			return in, fmt.Errorf("%w: unsupported api type %q in path_overrides", ErrInvalid, k)
-		}
-		v = strings.TrimSpace(v)
-		if v != "" && !strings.HasPrefix(v, "/") {
-			in.PathOverrides[k] = "/" + v
-		}
-	}
 	return in, nil
 }
 
@@ -208,11 +297,11 @@ func (s *Store) CreateProviderModel(ctx context.Context, providerID string, in P
 	}
 	var id string
 	err = s.pool.QueryRow(ctx, `
-INSERT INTO provider_models (provider_id, model_id, display_name, source, api_types,
-path_overrides, context_window, max_output_tokens,
+INSERT INTO provider_models (provider_id, model_id, display_name, source, api_schema,
+context_window, max_output_tokens,
 cost_currency, cost_input, cost_output, cost_cache_read, cost_cache_write, cost_tiers, enabled)
-VALUES ($1,$2,$3,'manual',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
-		providerID, in.ModelID, in.DisplayName, in.APITypes, marshalHeaders(in.PathOverrides),
+VALUES ($1,$2,$3,'manual',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
+		providerID, in.ModelID, in.DisplayName, marshalAPISchema(in.APISchema),
 		in.ContextWindow, in.MaxOutputTokens,
 		in.Cost.Currency, in.Cost.Input, in.Cost.Output, in.Cost.CacheRead, in.Cost.CacheWrite,
 		marshalCostTiers(in.Cost.Tiers), boolOr(in.Enabled, true)).Scan(&id)
@@ -231,12 +320,12 @@ func (s *Store) UpdateProviderModel(ctx context.Context, providerID, id string, 
 		return ProviderModel{}, err
 	}
 	cmd, err := s.pool.Exec(ctx, `
-UPDATE provider_models SET model_id=$3, display_name=$4, api_types=$5,
-path_overrides=$6, context_window=$7, max_output_tokens=$8,
-cost_currency=$9, cost_input=$10, cost_output=$11, cost_cache_read=$12,
-cost_cache_write=$13, cost_tiers=$14, enabled=$15
+UPDATE provider_models SET model_id=$3, display_name=$4, api_schema=$5,
+context_window=$6, max_output_tokens=$7,
+cost_currency=$8, cost_input=$9, cost_output=$10, cost_cache_read=$11,
+cost_cache_write=$12, cost_tiers=$13, enabled=$14
 WHERE id=$1 AND provider_id=$2`,
-		id, providerID, in.ModelID, in.DisplayName, in.APITypes, marshalHeaders(in.PathOverrides),
+		id, providerID, in.ModelID, in.DisplayName, marshalAPISchema(in.APISchema),
 		in.ContextWindow, in.MaxOutputTokens,
 		in.Cost.Currency, in.Cost.Input, in.Cost.Output, in.Cost.CacheRead, in.Cost.CacheWrite,
 		marshalCostTiers(in.Cost.Tiers), boolOr(in.Enabled, true))
@@ -364,11 +453,9 @@ func (s *Store) ResolveTarget(ctx context.Context, targetID, inboundAPIType stri
 	var t RuntimeTarget
 	var ct, proxyCT string
 	var headers []byte
-	var providerTypes []string
-	var providerOverridesRaw []byte
+	var providerSchemaRaw []byte
 	var modelID string
-	var modelTypes []string
-	var modelOverridesRaw []byte
+	var modelSchemaRaw []byte
 	var tiersRaw []byte
 	err := s.pool.QueryRow(ctx, `
 SELECT t.id, t.virtual_model_id, t.role, p.id, p.name, p.base_url, p.auth_type,
@@ -377,9 +464,8 @@ SELECT t.id, t.virtual_model_id, t.role, p.id, p.name, p.base_url, p.auth_type,
        COALESCE(pm.cost_currency,'USD'), COALESCE(pm.cost_input,0)::float8,
        COALESCE(pm.cost_output,0)::float8, COALESCE(pm.cost_cache_read,0)::float8,
        COALESCE(pm.cost_cache_write,0)::float8, COALESCE(pm.cost_tiers,'[]'::jsonb),
-       p.api_types, p.path_overrides,
-       COALESCE(pm.model_id,''), COALESCE(pm.api_types,'{}'::text[]),
-       COALESCE(pm.path_overrides,'{}'::jsonb),
+       p.api_schema,
+       COALESCE(pm.model_id,''), COALESCE(pm.api_schema,'{}'::jsonb),
        p.proxy_type, p.proxy_url, p.proxy_username, p.proxy_password_ciphertext,
        p.retry_count, p.retry_backoff, p.retry_initial_ms, p.retry_max_ms,
        p.retry_linear_interval_ms
@@ -393,7 +479,7 @@ WHERE t.id=$1 AND t.enabled=TRUE AND p.enabled=TRUE
 		&t.Weight, &t.Priority,
 		&t.Cost.Currency, &t.Cost.Input, &t.Cost.Output,
 		&t.Cost.CacheRead, &t.Cost.CacheWrite, &tiersRaw,
-		&providerTypes, &providerOverridesRaw, &modelID, &modelTypes, &modelOverridesRaw,
+		&providerSchemaRaw, &modelID, &modelSchemaRaw,
 		&t.Proxy.Type, &t.Proxy.URL, &t.Proxy.Username, &proxyCT,
 		&t.Retry.Count, &t.Retry.Backoff, &t.Retry.InitialMS, &t.Retry.MaxMS,
 		&t.Retry.LinearDelayMS)
@@ -415,19 +501,12 @@ WHERE t.id=$1 AND t.enabled=TRUE AND p.enabled=TRUE
 		_ = json.Unmarshal(tiersRaw, &t.Cost.Tiers)
 	}
 
-	providerOverrides := map[string]string{}
-	if len(providerOverridesRaw) > 0 {
-		_ = json.Unmarshal(providerOverridesRaw, &providerOverrides)
-	}
-	modelOverrides := map[string]string{}
-	if len(modelOverridesRaw) > 0 {
-		_ = json.Unmarshal(modelOverridesRaw, &modelOverrides)
-	}
 	if modelID != "" {
 		t.UpstreamModel = modelID
 	}
-	t.APIType = ChooseUpstreamAPIType(modelTypes, providerTypes, inboundAPIType)
-	t.UpstreamPath = ResolvePath(modelOverrides, providerOverrides, t.APIType)
+	schema := ResolveAPISchema(decodeAPISchema(modelSchemaRaw), decodeAPISchema(providerSchemaRaw))
+	t.APIType = ChooseUpstreamAPIType(schema, inboundAPIType)
+	t.Endpoint = schema[t.APIType].Endpoint
 	return t, nil
 }
 

@@ -20,11 +20,13 @@ const (
 // (a public model name backed by routing targets), or an upstream model
 // reachable as "{providerId}/{modelId}".
 type ModelEntry struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Kind      string    `json:"kind"`
-	Enabled   bool      `json:"enabled"`
-	APITypes  []string  `json:"api_types"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Kind    string `json:"kind"`
+	Enabled bool   `json:"enabled"`
+	// APISchema is the effective upstream schema: every protocol with enabled
+	// reporting whether the model can serve it, and endpoint the resolved path.
+	APISchema APISchema `json:"api_schema"`
 	CreatedAt time.Time `json:"created_at"`
 
 	// Virtual model entry (kind = virtual_model).
@@ -73,18 +75,6 @@ func providerModelName(providerName, displayName, modelID string) string {
 	return providerName + "/" + name
 }
 
-// effectiveModelAPITypes mirrors the routing resolution order: model protocols,
-// then provider protocols, then the built-in defaults.
-func effectiveModelAPITypes(modelTypes, providerTypes []string) []string {
-	if len(modelTypes) > 0 {
-		return modelTypes
-	}
-	if len(providerTypes) > 0 {
-		return providerTypes
-	}
-	return DefaultAPITypes()
-}
-
 // ListModelCatalog returns every model the gateway can serve: virtual models
 // first, then each provider's models ordered by provider and model id.
 func (s *Store) ListModelCatalog(ctx context.Context) ([]ModelEntry, error) {
@@ -100,24 +90,13 @@ func (s *Store) ListModelCatalog(ctx context.Context) ([]ModelEntry, error) {
 }
 
 func (s *Store) listVirtualModelEntries(ctx context.Context) ([]ModelEntry, error) {
-	// A virtual model no longer declares entry protocols of its own: whatever a
-	// client sends is accepted, and each target negotiates its upstream
-	// protocol. The catalog therefore reports the union of the protocols its
-	// enabled targets can speak, in canonical order.
+	// A virtual model declares no protocols of its own: whatever a client sends
+	// is accepted, and each target negotiates its upstream protocol. The catalog
+	// therefore reports the union of the protocols its enabled targets can
+	// speak, with each endpoint taken from the first target that speaks it.
 	rows, err := s.pool.Query(ctx, `
 SELECT r.id, r.name, r.virtual_model, r.enabled, r.created_at,
-       (SELECT COUNT(*) FROM virtual_model_targets t WHERE t.virtual_model_id = r.id),
-       COALESCE((
-           SELECT array_agg(DISTINCT at)
-           FROM virtual_model_targets t
-           JOIN providers p ON p.id = t.provider_id
-           LEFT JOIN provider_models pm ON pm.id = t.provider_model_id,
-           unnest(COALESCE(NULLIF(pm.api_types, '{}'::TEXT[]),
-                           NULLIF(p.api_types, '{}'::TEXT[]),
-                           ARRAY['chat.completions','responses','messages']::TEXT[])) AS at
-           WHERE t.virtual_model_id = r.id AND t.enabled = TRUE AND p.enabled = TRUE
-             AND (t.provider_model_id IS NULL OR pm.enabled = TRUE)
-       ), '{}'::TEXT[])
+       (SELECT COUNT(*) FROM virtual_model_targets t WHERE t.virtual_model_id = r.id)
 FROM virtual_models r ORDER BY r.created_at ASC, r.virtual_model ASC`)
 	if err != nil {
 		return nil, err
@@ -126,14 +105,52 @@ FROM virtual_models r ORDER BY r.created_at ASC, r.virtual_model ASC`)
 	out := make([]ModelEntry, 0)
 	for rows.Next() {
 		e := ModelEntry{Kind: ModelKindVirtualModel}
-		var types []string
 		if err := rows.Scan(&e.VirtualModelID, &e.VirtualModelName, &e.ID, &e.Enabled,
-			&e.CreatedAt, &e.TargetCount, &types); err != nil {
+			&e.CreatedAt, &e.TargetCount); err != nil {
 			return nil, err
 		}
-		e.APITypes = CanonicalAPITypes(types)
 		e.Name = e.ID
 		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return out, nil
+	}
+	schemas, err := s.virtualModelTargetSchemas(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].APISchema = UnionAPISchemas(schemas[out[i].VirtualModelID])
+	}
+	return out, nil
+}
+
+// virtualModelTargetSchemas loads the effective schema of every enabled target,
+// grouped by virtual model.
+func (s *Store) virtualModelTargetSchemas(ctx context.Context) (map[string][]APISchema, error) {
+	rows, err := s.pool.Query(ctx, `
+SELECT t.virtual_model_id, COALESCE(pm.api_schema,'{}'::jsonb), p.api_schema
+FROM virtual_model_targets t
+JOIN providers p ON p.id = t.provider_id
+LEFT JOIN provider_models pm ON pm.id = t.provider_model_id
+WHERE t.enabled = TRUE AND p.enabled = TRUE
+  AND (t.provider_model_id IS NULL OR pm.enabled = TRUE)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]APISchema{}
+	for rows.Next() {
+		var virtualModelID string
+		var modelRaw, providerRaw []byte
+		if err := rows.Scan(&virtualModelID, &modelRaw, &providerRaw); err != nil {
+			return nil, err
+		}
+		schema := ResolveAPISchema(decodeAPISchema(modelRaw), decodeAPISchema(providerRaw))
+		out[virtualModelID] = append(out[virtualModelID], schema)
 	}
 	return out, rows.Err()
 }
@@ -141,7 +158,7 @@ FROM virtual_models r ORDER BY r.created_at ASC, r.virtual_model ASC`)
 func (s *Store) listProviderModelEntries(ctx context.Context) ([]ModelEntry, error) {
 	rows, err := s.pool.Query(ctx, `
 SELECT pm.id, p.id, p.slug, p.name, pm.model_id, pm.display_name, pm.source,
-       pm.api_types, p.api_types, pm.enabled, p.enabled,
+       pm.api_schema, p.api_schema, pm.enabled, p.enabled,
        pm.context_window, pm.max_output_tokens,
        pm.cost_currency, pm.cost_input::float8, pm.cost_output::float8,
        pm.cost_cache_read::float8, pm.cost_cache_write::float8, pm.cost_tiers,
@@ -157,7 +174,7 @@ ORDER BY p.created_at ASC, pm.model_id ASC`)
 	for rows.Next() {
 		var (
 			modelPK, providerID, slug, providerName, modelID, displayName, source string
-			modelTypes, providerTypes                                             []string
+			modelSchemaRaw, providerSchemaRaw                                     []byte
 			modelEnabled, providerEnabled                                         bool
 			contextWindow, maxOutputTokens                                        int
 			cost                                                                  ModelCost
@@ -165,7 +182,7 @@ ORDER BY p.created_at ASC, pm.model_id ASC`)
 			createdAt                                                             time.Time
 		)
 		if err := rows.Scan(&modelPK, &providerID, &slug, &providerName, &modelID,
-			&displayName, &source, &modelTypes, &providerTypes, &modelEnabled, &providerEnabled,
+			&displayName, &source, &modelSchemaRaw, &providerSchemaRaw, &modelEnabled, &providerEnabled,
 			&contextWindow, &maxOutputTokens,
 			&cost.Currency, &cost.Input, &cost.Output, &cost.CacheRead, &cost.CacheWrite,
 			&tiersRaw, &createdAt); err != nil {
@@ -183,7 +200,7 @@ ORDER BY p.created_at ASC, pm.model_id ASC`)
 			Name:            providerModelName(providerName, displayName, modelID),
 			Kind:            ModelKindProvider,
 			Enabled:         modelEnabled && providerEnabled,
-			APITypes:        effectiveModelAPITypes(modelTypes, providerTypes),
+			APISchema:       ResolveAPISchema(decodeAPISchema(modelSchemaRaw), decodeAPISchema(providerSchemaRaw)),
 			CreatedAt:       createdAt,
 			ProviderID:      providerID,
 			ProviderSlug:    slug,
@@ -276,13 +293,12 @@ func matchProviderModel(candidates []ModelMatch, query string) (ModelMatch, bool
 func (s *Store) ResolveModelTarget(ctx context.Context, providerModelID, inboundAPIType string) (RuntimeTarget, error) {
 	var t RuntimeTarget
 	var apiKeyCT, proxyCT string
-	var headersRaw, providerOverridesRaw, modelOverridesRaw, tiersRaw []byte
+	var headersRaw, providerSchemaRaw, modelSchemaRaw, tiersRaw []byte
 	var modelID string
-	var modelTypes, providerTypes []string
 	err := s.pool.QueryRow(ctx, `
 SELECT pm.id, p.id, p.name, p.base_url, p.auth_type, p.api_key_ciphertext, p.headers,
        p.timeout_ms, pm.model_id,
-       pm.api_types, p.api_types, p.path_overrides, pm.path_overrides,
+       pm.api_schema, p.api_schema,
        pm.cost_currency, pm.cost_input::float8, pm.cost_output::float8,
        pm.cost_cache_read::float8, pm.cost_cache_write::float8, pm.cost_tiers,
        p.proxy_type, p.proxy_url, p.proxy_username, p.proxy_password_ciphertext,
@@ -293,7 +309,7 @@ JOIN providers p ON p.id = pm.provider_id
 WHERE pm.id = $1 AND pm.enabled = TRUE AND p.enabled = TRUE`, providerModelID).Scan(
 		&t.TargetID, &t.ProviderID, &t.ProviderName, &t.BaseURL, &t.AuthType, &apiKeyCT,
 		&headersRaw, &t.TimeoutMS, &modelID,
-		&modelTypes, &providerTypes, &providerOverridesRaw, &modelOverridesRaw,
+		&modelSchemaRaw, &providerSchemaRaw,
 		&t.Cost.Currency, &t.Cost.Input, &t.Cost.Output,
 		&t.Cost.CacheRead, &t.Cost.CacheWrite, &tiersRaw,
 		&t.Proxy.Type, &t.Proxy.URL, &t.Proxy.Username, &proxyCT,
@@ -316,18 +332,11 @@ WHERE pm.id = $1 AND pm.enabled = TRUE AND p.enabled = TRUE`, providerModelID).S
 	if len(tiersRaw) > 0 {
 		_ = json.Unmarshal(tiersRaw, &t.Cost.Tiers)
 	}
-	providerOverrides := map[string]string{}
-	if len(providerOverridesRaw) > 0 {
-		_ = json.Unmarshal(providerOverridesRaw, &providerOverrides)
-	}
-	modelOverrides := map[string]string{}
-	if len(modelOverridesRaw) > 0 {
-		_ = json.Unmarshal(modelOverridesRaw, &modelOverrides)
-	}
 	t.Role = RoleLB
 	t.Weight = 100
 	t.UpstreamModel = modelID
-	t.APIType = ChooseUpstreamAPIType(modelTypes, providerTypes, inboundAPIType)
-	t.UpstreamPath = ResolvePath(modelOverrides, providerOverrides, t.APIType)
+	schema := ResolveAPISchema(decodeAPISchema(modelSchemaRaw), decodeAPISchema(providerSchemaRaw))
+	t.APIType = ChooseUpstreamAPIType(schema, inboundAPIType)
+	t.Endpoint = schema[t.APIType].Endpoint
 	return t, nil
 }

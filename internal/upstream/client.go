@@ -174,7 +174,7 @@ func (c *Client) doOnce(ctx context.Context, target store.RuntimeTarget, body []
 		// A misconfigured proxy will not be fixed by retrying.
 		return nil, false, err
 	}
-	endpoint, err := BuildURL(target.BaseURL, target.UpstreamPath)
+	endpoint, err := BuildURL(target.BaseURL, target.Endpoint)
 	if err != nil {
 		return nil, false, err
 	}

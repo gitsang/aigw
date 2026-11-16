@@ -1,79 +1,227 @@
 package store
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
-func TestChooseUpstreamAPIType(t *testing.T) {
+// schema builds an api_schema from a list of enabled protocols; every enabled
+// protocol uses the built-in endpoint unless an override is given.
+func schema(enabled []string, endpoints map[string]string) APISchema {
+	out := make(APISchema, len(DefaultProtocols()))
+	for _, name := range DefaultProtocols() {
+		on := false
+		for _, e := range enabled {
+			if e == name {
+				on = true
+			}
+		}
+		if !on {
+			continue
+		}
+		out[name] = APISchemaEntry{Enabled: true, Endpoint: endpoints[name]}
+	}
+	return out
+}
+
+func TestResolveAPISchema(t *testing.T) {
+	providerOnly := schema([]string{APIMessages}, nil)
 	tests := []struct {
-		name          string
-		modelTypes    []string
-		providerTypes []string
-		inbound       string
-		want          string
+		name        string
+		model       APISchema
+		provider    APISchema
+		wantEnabled []string
+		wantPath    map[string]string
 	}{
 		{
-			name:          "inbound protocol is forwarded as-is when supported",
-			providerTypes: DefaultAPITypes(), inbound: APIMessages, want: APIMessages,
+			name:        "nothing configured enables all built-ins",
+			wantEnabled: DefaultProtocols(),
+			wantPath: map[string]string{
+				APIChatCompletions: "/v1/chat/completions",
+				APIResponses:       "/v1/responses",
+				APIMessages:        "/v1/messages",
+			},
 		},
 		{
-			name:          "inbound responses is forwarded as-is",
-			providerTypes: DefaultAPITypes(), inbound: APIResponses, want: APIResponses,
+			name:        "provider schema defines support when the model has none",
+			provider:    providerOnly,
+			wantEnabled: []string{APIMessages},
+			wantPath:    map[string]string{APIMessages: "/v1/messages"},
 		},
 		{
-			name:          "unsupported inbound falls back to chat.completions first",
-			providerTypes: DefaultAPITypes(), inbound: "", want: APIChatCompletions,
+			name:        "model schema replaces provider support wholesale",
+			model:       schema([]string{APIResponses}, nil),
+			provider:    DefaultAPISchema(),
+			wantEnabled: []string{APIResponses},
+			wantPath:    map[string]string{APIResponses: "/v1/responses"},
 		},
 		{
-			name:          "provider without chat.completions falls back to responses",
-			providerTypes: []string{APIMessages, APIResponses}, inbound: APIChatCompletions, want: APIResponses,
+			name:        "model endpoint wins over provider endpoint",
+			model:       schema([]string{APIMessages}, map[string]string{APIMessages: "/model/messages"}),
+			provider:    schema([]string{APIMessages}, map[string]string{APIMessages: "/provider/messages"}),
+			wantEnabled: []string{APIMessages},
+			wantPath:    map[string]string{APIMessages: "/model/messages"},
 		},
 		{
-			name:          "provider with only messages routes there",
-			providerTypes: []string{APIMessages}, inbound: APIResponses, want: APIMessages,
+			name:        "provider endpoint applies when the model sets none",
+			model:       schema([]string{APIMessages}, nil),
+			provider:    schema([]string{APIMessages}, map[string]string{APIMessages: "/provider/messages"}),
+			wantEnabled: []string{APIMessages},
+			wantPath:    map[string]string{APIMessages: "/provider/messages"},
 		},
 		{
-			name:       "model protocols win over provider protocols",
-			modelTypes: []string{APIMessages}, providerTypes: DefaultAPITypes(), inbound: APIChatCompletions, want: APIMessages,
+			// Support comes from the model alone, but endpoints fall back per
+			// protocol regardless of which schema enabled it.
+			name:  "provider endpoint applies even when the provider disables the protocol",
+			model: schema([]string{APIMessages}, nil),
+			provider: APISchema{
+				APIMessages: {Enabled: false, Endpoint: "/provider/messages"},
+			},
+			wantEnabled: []string{APIMessages},
+			wantPath:    map[string]string{APIMessages: "/provider/messages"},
 		},
 		{
-			name:          "unsorted provider list is normalized to canonical order",
-			providerTypes: []string{APIMessages, APIChatCompletions}, inbound: "", want: APIChatCompletions,
-		},
-		{
-			name: "everything empty uses builtins", inbound: APIResponses, want: APIResponses,
+			name:        "disabled protocols report no endpoint",
+			provider:    providerOnly,
+			wantEnabled: []string{APIMessages},
+			wantPath:    map[string]string{APIResponses: "", APIChatCompletions: ""},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ChooseUpstreamAPIType(tt.modelTypes, tt.providerTypes, tt.inbound); got != tt.want {
+			got := ResolveAPISchema(tt.model, tt.provider)
+			if enabled := got.Protocols(); !equalStrings(enabled, tt.wantEnabled) {
+				t.Fatalf("enabled=%v want %v", enabled, tt.wantEnabled)
+			}
+			for name, want := range tt.wantPath {
+				if got[name].Endpoint != want {
+					t.Fatalf("endpoint[%s]=%q want %q", name, got[name].Endpoint, want)
+				}
+			}
+			if len(got) != len(DefaultProtocols()) {
+				t.Fatalf("resolved schema must always carry every protocol, got %v", got)
+			}
+		})
+	}
+}
+
+func TestChooseUpstreamAPIType(t *testing.T) {
+	all := DefaultAPISchema()
+	tests := []struct {
+		name    string
+		schema  APISchema
+		inbound string
+		want    string
+	}{
+		{
+			name:   "inbound protocol is forwarded as-is when supported",
+			schema: all, inbound: APIMessages, want: APIMessages,
+		},
+		{
+			name:   "inbound responses is forwarded as-is",
+			schema: all, inbound: APIResponses, want: APIResponses,
+		},
+		{
+			name:   "empty inbound takes chat.completions first",
+			schema: all, inbound: "", want: APIChatCompletions,
+		},
+		{
+			name:    "upstream without chat.completions falls back to responses",
+			schema:  schema([]string{APIMessages, APIResponses}, nil),
+			inbound: APIChatCompletions, want: APIResponses,
+		},
+		{
+			name:    "upstream with only messages routes there",
+			schema:  schema([]string{APIMessages}, nil),
+			inbound: APIResponses, want: APIMessages,
+		},
+		{
+			name:   "empty schema keeps chat.completions",
+			schema: APISchema{}, inbound: APIMessages, want: APIChatCompletions,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ChooseUpstreamAPIType(tt.schema, tt.inbound); got != tt.want {
 				t.Fatalf("ChooseUpstreamAPIType()=%q want %q", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestCanonicalAPITypes(t *testing.T) {
-	got := CanonicalAPITypes([]string{APIMessages, "bogus", APIChatCompletions, APIMessages})
-	want := []string{APIChatCompletions, APIMessages}
-	if len(got) != len(want) {
-		t.Fatalf("got %v want %v", got, want)
+func TestAPISchemaAPITypesOrder(t *testing.T) {
+	// A hand-written or legacy schema is not trusted to be in canonical order.
+	raw := APISchema{
+		APIMessages:        {Enabled: true},
+		APIResponses:       {Enabled: false},
+		APIChatCompletions: {Enabled: true},
 	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("got %v want %v", got, want)
+	if got := raw.Protocols(); !equalStrings(got, []string{APIChatCompletions, APIMessages}) {
+		t.Fatalf("APITypes()=%v", got)
+	}
+}
+
+func TestNormalizeAPISchema(t *testing.T) {
+	if got, err := normalizeAPISchema(APISchema{}); err != nil || len(got) != 0 {
+		t.Fatalf("empty schema must stay unset: %v %v", got, err)
+	}
+
+	got, err := normalizeAPISchema(APISchema{
+		APIMessages:  {Enabled: true, Endpoint: "  v1/messages "},
+		APIResponses: {Enabled: false, Endpoint: "/v1/responses"},
+	})
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	if got[APIMessages].Endpoint != "/v1/messages" {
+		t.Fatalf("endpoint should gain a leading slash, got %q", got[APIMessages].Endpoint)
+	}
+	if got[APIResponses].Enabled {
+		t.Fatalf("disabled entry must stay disabled")
+	}
+
+	if _, err := normalizeAPISchema(APISchema{"bogus": {Enabled: true}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unknown protocol should be rejected, got %v", err)
+	}
+	if _, err := normalizeAPISchema(APISchema{APIMessages: {Enabled: false}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a schema disabling every protocol should be rejected, got %v", err)
+	}
+}
+
+func TestUnionAPISchemas(t *testing.T) {
+	got := UnionAPISchemas([]APISchema{
+		schema([]string{APIChatCompletions}, nil),
+		schema([]string{APIMessages}, map[string]string{APIMessages: "/custom/messages"}),
+	})
+	if enabled := got.Protocols(); !equalStrings(enabled, []string{APIChatCompletions, APIMessages}) {
+		t.Fatalf("enabled=%v", enabled)
+	}
+	if got[APIMessages].Endpoint != "/custom/messages" {
+		t.Fatalf("endpoint should come from the enabling target, got %q", got[APIMessages].Endpoint)
+	}
+}
+
+func TestDefaultEndpoint(t *testing.T) {
+	tests := map[string]string{
+		APIChatCompletions: "/v1/chat/completions",
+		APIResponses:       "/v1/responses",
+		APIMessages:        "/v1/messages",
+	}
+	for name, want := range tests {
+		if got := DefaultEndpoint(name); got != want {
+			t.Fatalf("DefaultEndpoint(%q)=%q want %q", name, got, want)
 		}
 	}
 }
 
-func TestResolvePathPrecedence(t *testing.T) {
-	provider := map[string]string{APIMessages: "/provider/messages"}
-	model := map[string]string{APIMessages: "/model/messages"}
-	if got := ResolvePath(model, provider, APIMessages); got != "/model/messages" {
-		t.Fatalf("model override = %q", got)
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
 	}
-	if got := ResolvePath(nil, provider, APIMessages); got != "/provider/messages" {
-		t.Fatalf("provider override = %q", got)
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
 	}
-	if got := ResolvePath(nil, nil, APIMessages); got != "/v1/messages" {
-		t.Fatalf("builtin default = %q", got)
-	}
+	return true
 }

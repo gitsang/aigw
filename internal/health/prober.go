@@ -121,7 +121,7 @@ func (p *Prober) probe(ctx context.Context, t store.HealthProbeTarget) probeResu
 	result := probeResult{targetID: t.TargetID}
 	start := time.Now()
 
-	endpoint, err := upstream.BuildURL(t.BaseURL, t.UpstreamPath)
+	endpoint, err := upstream.BuildURL(t.BaseURL, t.Endpoint)
 	if err != nil {
 		result.errText = err.Error()
 		result.latencyMS = int(time.Since(start).Milliseconds())

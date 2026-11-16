@@ -190,37 +190,52 @@ cross-protocol streaming conversion.
 
 ## Provider configuration → models → virtual models
 
-An **upstream protocol** (the `api_types` field in the API) is one of
-`chat.completions`, `responses` or `messages` — the request/response schema an
-upstream speaks. It is configured **per provider and per model**, never per
-target and never per virtual model:
+An **upstream protocol** is one of `chat.completions`, `responses` or `messages`
+— the request/response schema an upstream speaks. Protocols are configured as a
+single `api_schema` document, **per provider and per model**, never per target and
+never per virtual model:
 
-1. **Provider level** — each provider declares which upstream protocols it supports
-   (`chat.completions`, `responses`, `messages`) and an optional default path per
-   protocol. Empty list means the built-in defaults (all three).
+```json
+"api_schema": {
+  "chat.completions": { "enabled": true,  "endpoint": "" },
+  "responses":        { "enabled": true,  "endpoint": "" },
+  "messages":         { "enabled": false, "endpoint": "/v1/messages" }
+}
+```
+
+- `enabled` — whether the upstream speaks that protocol.
+- `endpoint` — the upstream path for it. An empty string means the built-in
+  default (`/v1/chat/completions`, `/v1/responses`, `/v1/messages`).
+- `{}` (empty document) means **not configured**: a provider then speaks the
+  built-in defaults and a provider model inherits its provider. A non-empty
+  document is the complete list, so a protocol missing from it is unsupported.
+
+1. **Provider level** — each provider declares the `api_schema` it supports.
 2. **Model level** — models exist only under a provider. They can be pulled from the
    provider's OpenAI-compatible `GET /models` endpoint or added manually. Every model
-   may override the provider's protocols, add a path override per protocol, and
-   carries its own **input/output price per 1M tokens** used for cost accounting.
+   may override the provider's `api_schema` (per protocol `enabled` and `endpoint`)
+   and carries its own **input/output price per 1M tokens** used for cost accounting.
 3. **Virtual model** — the console's **Virtual Model** page edits a virtual model:
    a virtual model ID (what clients send as `model`) plus its target set (provider +
    one of its models, role and weight) and its retry/fallback settings. A virtual
    model accepts **every** entry protocol; nothing about protocols is configured
-   there.
+   there. Its `api_schema` in the model catalog is the union of its targets'.
 
 Resolution rules for an inbound request:
 
-- A target always speaks the protocols its model/provider supports, resolved as
-  `model protocols > provider protocols > built-in defaults`.
+- A target's effective `api_schema` is resolved as
+  `model api_schema > provider api_schema > built-in defaults` for support, and
+  per protocol `model endpoint > provider endpoint > built-in default` for the
+  path.
 - **The inbound protocol is forwarded as-is** whenever that upstream supports it —
   no translation happens in the common case.
 - If the upstream does not support it, the gateway falls back in the fixed order
   **`chat.completions` → `responses` → `messages`** and takes the first protocol
   the upstream supports, translating the request/response/stream as needed.
-- Path precedence: model path override > provider path override > built-in
-  default. Targets do not carry a path or protocol field.
-- Health probes use the same resolved protocol/path (an empty inbound protocol
-  resolves to the first supported protocol in the order above).
+- Targets carry neither a protocol nor an endpoint field: both are resolved from
+  the model/provider `api_schema`.
+- Health probes use the same resolved protocol/endpoint (an empty inbound
+  protocol resolves to the first supported protocol in the order above).
 - Auto model matching (Settings page) resolves a request model that has no
   virtual model to the first provider model whose `{providerId}/{modelId}` id
   contains the requested name, case-insensitively; the matched model only
@@ -237,7 +252,7 @@ Example: two targets whose upstreams support `chat.completions + responses`
 | Messages | `responses` (translated) | Messages (exact match) |
 
 Streaming is a request-body flag (`"stream": true`), not a separate protocol: it
-is never part of `api_types`.
+is never part of `api_schema`.
 
 ### Model pricing from models.dev
 
@@ -304,7 +319,7 @@ All admin endpoints require `Authorization: Bearer <admin_token>`:
 | POST | `/api/admin/providers/{id}/models/discover` | sync models from `/models` |
 | GET | `/api/admin/providers/{id}/models/modelsdev?model_id=...` | look up a model's prices on models.dev |
 | POST | `/api/admin/providers/{id}/models/sync-prices` | preview (`dry_run`) or apply models.dev prices |
-| PUT | `/api/admin/providers/{id}/models/{modelID}` | update model protocols/paths |
+| PUT | `/api/admin/providers/{id}/models/{modelID}` | update model pricing and `api_schema` |
 | DELETE | `/api/admin/providers/{id}/models/{modelID}` | delete model |
 | GET | `/api/admin/virtual-models` | list virtual models |
 | POST | `/api/admin/virtual-models` | create virtual model |

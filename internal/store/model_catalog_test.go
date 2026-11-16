@@ -47,14 +47,15 @@ func TestProviderModelPublicIdentity(t *testing.T) {
 	}
 }
 
-func TestEffectiveModelAPITypes(t *testing.T) {
-	if got := effectiveModelAPITypes([]string{APIResponses}, []string{APIMessages}); len(got) != 1 || got[0] != APIResponses {
-		t.Fatalf("model types should win: %v", got)
+func TestCatalogSchemaForProviderModel(t *testing.T) {
+	// The catalog entry reports the same effective schema the gateway resolves.
+	if got := ResolveAPISchema(schema([]string{APIResponses}, nil), DefaultAPISchema()).Protocols(); len(got) != 1 || got[0] != APIResponses {
+		t.Fatalf("model schema should win: %v", got)
 	}
-	if got := effectiveModelAPITypes(nil, []string{APIMessages}); len(got) != 1 || got[0] != APIMessages {
-		t.Fatalf("provider types should be inherited: %v", got)
+	if got := ResolveAPISchema(nil, schema([]string{APIMessages}, nil)).Protocols(); len(got) != 1 || got[0] != APIMessages {
+		t.Fatalf("provider schema should be inherited: %v", got)
 	}
-	if got := effectiveModelAPITypes(nil, nil); len(got) != 3 {
+	if got := ResolveAPISchema(nil, nil); len(got) != 3 {
 		t.Fatalf("built-in defaults expected: %v", got)
 	}
 }

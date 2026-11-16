@@ -15,7 +15,7 @@ import (
 func newTarget(baseURL string) store.RuntimeTarget {
 	return store.RuntimeTarget{
 		BaseURL: baseURL, AuthType: "bearer", APIKey: "k",
-		UpstreamPath: "/v1/chat/completions", TimeoutMS: 5000,
+		Endpoint: "/v1/chat/completions", TimeoutMS: 5000,
 		APIType: store.APIChatCompletions,
 	}
 }

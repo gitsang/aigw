@@ -100,7 +100,7 @@ type HealthProbeTarget struct {
 	Proxy         ProxySettings
 	UpstreamModel string
 	APIType       string
-	UpstreamPath  string
+	Endpoint      string
 }
 
 // RuntimeTarget is everything needed to perform one upstream request.
@@ -117,7 +117,7 @@ type RuntimeTarget struct {
 	TimeoutMS      int
 	UpstreamModel  string
 	APIType        string
-	UpstreamPath   string
+	Endpoint       string
 	Weight         int
 	Priority       int
 	Cost           ModelCost
@@ -210,7 +210,7 @@ func (s *Store) ListProviders(ctx context.Context) ([]Provider, error) {
 	rows, err := s.pool.Query(ctx, `
 SELECT p.id, p.slug, p.name, p.description, p.base_url, p.auth_type, p.api_key_last4,
        (p.api_key_ciphertext <> ''), p.headers,
-       p.timeout_ms, p.api_types, p.path_overrides,
+       p.timeout_ms, p.api_schema,
        p.enabled, p.created_at, p.updated_at,
        p.retry_count, p.retry_backoff, p.retry_initial_ms, p.retry_max_ms,
        p.retry_linear_interval_ms,
@@ -234,10 +234,10 @@ FROM providers p ORDER BY p.created_at ASC`)
 
 func scanProvider(row rowScanner) (Provider, error) {
 	var p Provider
-	var headers, pathOverrides []byte
+	var headers, schema []byte
 	err := row.Scan(&p.ID, &p.Slug, &p.Name, &p.Description, &p.BaseURL, &p.AuthType, &p.APIKeyLast4, &p.HasAPIKey,
 		&headers, &p.TimeoutMS,
-		&p.APITypes, &pathOverrides,
+		&schema,
 		&p.Enabled, &p.CreatedAt, &p.UpdatedAt,
 		&p.RetryCount, &p.RetryBackoff, &p.RetryInitialMS, &p.RetryMaxMS,
 		&p.RetryLinearIntervalMS,
@@ -247,20 +247,14 @@ func scanProvider(row rowScanner) (Provider, error) {
 		return p, err
 	}
 	p.Headers = decodeHeaders(headers)
-	p.PathOverrides = map[string]string{}
-	if len(pathOverrides) > 0 {
-		_ = json.Unmarshal(pathOverrides, &p.PathOverrides)
-	}
-	if p.APITypes == nil {
-		p.APITypes = []string{}
-	}
+	p.APISchema = decodeAPISchema(schema)
 	return p, nil
 }
 
 const providerSelect = `
 SELECT p.id, p.slug, p.name, p.description, p.base_url, p.auth_type, p.api_key_last4,
        (p.api_key_ciphertext <> ''), p.headers,
-       p.timeout_ms, p.api_types, p.path_overrides,
+       p.timeout_ms, p.api_schema,
        p.enabled, p.created_at, p.updated_at,
        p.retry_count, p.retry_backoff, p.retry_initial_ms, p.retry_max_ms,
        p.retry_linear_interval_ms,
@@ -278,6 +272,11 @@ func (s *Store) GetProvider(ctx context.Context, id string) (Provider, error) {
 }
 
 func (s *Store) CreateProvider(ctx context.Context, in ProviderInput) (Provider, error) {
+	schema, err := normalizeAPISchema(in.APISchema)
+	if err != nil {
+		return Provider{}, err
+	}
+	in.APISchema = schema
 	enc, err := s.cipher.Encrypt(in.APIKey)
 	if err != nil {
 		return Provider{}, err
@@ -291,15 +290,15 @@ func (s *Store) CreateProvider(ctx context.Context, in ProviderInput) (Provider,
 	var id string
 	err = s.pool.QueryRow(ctx, `
 INSERT INTO providers (slug, name, description, base_url, auth_type, api_key_ciphertext, api_key_last4, headers,
-timeout_ms, api_types, path_overrides, enabled,
+timeout_ms, api_schema, enabled,
 retry_count, retry_backoff, retry_initial_ms, retry_max_ms, retry_linear_interval_ms,
 proxy_type, proxy_url, proxy_username, proxy_password_ciphertext, proxy_password_last4)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
 RETURNING id`,
 		normalizeSlug(in.Slug, in.Name), in.Name, in.Description, in.BaseURL, normalizeAuthType(in.AuthType), enc, last4,
 		marshalHeaders(in.Headers),
 		normalizeTimeout(in.TimeoutMS),
-		normalizeAPITypesOrEmpty(in.APITypes), marshalHeaders(in.PathOverrides),
+		marshalAPISchema(in.APISchema),
 		boolOr(in.Enabled, true),
 		normalizeProviderRetryCount(in.RetryCount), normalizeBackoff(in.RetryBackoff),
 		nonNegative(in.RetryInitialMS), nonNegative(in.RetryMaxMS), nonNegative(in.RetryLinearIntervalMS),
@@ -312,6 +311,11 @@ RETURNING id`,
 }
 
 func (s *Store) UpdateProvider(ctx context.Context, id string, in ProviderInput) (Provider, error) {
+	schema, err := normalizeAPISchema(in.APISchema)
+	if err != nil {
+		return Provider{}, err
+	}
+	in.APISchema = schema
 	enc, err := s.cipher.Encrypt(in.APIKey)
 	if err != nil {
 		return Provider{}, err
@@ -326,18 +330,18 @@ func (s *Store) UpdateProvider(ctx context.Context, id string, in ProviderInput)
 UPDATE providers SET slug=$2, name=$3, description=$4, base_url=$5, auth_type=$6,
 api_key_ciphertext=CASE WHEN $7::text='' THEN api_key_ciphertext ELSE $7 END,
 api_key_last4=CASE WHEN $7::text='' THEN api_key_last4 ELSE $8 END,
-headers=$9, timeout_ms=$10, api_types=$11, path_overrides=$12, enabled=$13,
-retry_count=$14, retry_backoff=$15, retry_initial_ms=$16, retry_max_ms=$17,
-retry_linear_interval_ms=$18,
-proxy_type=$19, proxy_url=$20, proxy_username=$21,
-proxy_password_ciphertext=CASE WHEN $22::text='' THEN proxy_password_ciphertext ELSE $22 END,
-proxy_password_last4=CASE WHEN $22::text='' THEN proxy_password_last4 ELSE $23 END
+headers=$9, timeout_ms=$10, api_schema=$11, enabled=$12,
+retry_count=$13, retry_backoff=$14, retry_initial_ms=$15, retry_max_ms=$16,
+retry_linear_interval_ms=$17,
+proxy_type=$18, proxy_url=$19, proxy_username=$20,
+proxy_password_ciphertext=CASE WHEN $21::text='' THEN proxy_password_ciphertext ELSE $21 END,
+proxy_password_last4=CASE WHEN $21::text='' THEN proxy_password_last4 ELSE $22 END
 WHERE id=$1`,
 		id, normalizeSlug(in.Slug, in.Name), in.Name, in.Description, in.BaseURL,
 		normalizeAuthType(in.AuthType), enc, last4,
 		marshalHeaders(in.Headers),
-		normalizeTimeout(in.TimeoutMS), normalizeAPITypesOrEmpty(in.APITypes),
-		marshalHeaders(in.PathOverrides), boolOr(in.Enabled, true),
+		normalizeTimeout(in.TimeoutMS), marshalAPISchema(in.APISchema),
+		boolOr(in.Enabled, true),
 		normalizeProviderRetryCount(in.RetryCount), normalizeBackoff(in.RetryBackoff),
 		nonNegative(in.RetryInitialMS), nonNegative(in.RetryMaxMS), nonNegative(in.RetryLinearIntervalMS),
 		normalizeProxyType(in.ProxyType), strings.TrimSpace(in.ProxyURL),
@@ -521,8 +525,7 @@ func (s *Store) loadTargets(ctx context.Context, virtualModelID string) ([]Virtu
 SELECT t.id, t.virtual_model_id, t.role, t.provider_id, p.name, p.base_url,
        COALESCE(t.provider_model_id::text,''), COALESCE(pm.model_id,''), t.upstream_model,
        t.weight, t.priority, t.enabled,
-       COALESCE(pm.api_types,'{}'::text[]), COALESCE(pm.path_overrides,'{}'::jsonb),
-       p.api_types, p.path_overrides,
+       COALESCE(pm.api_schema,'{}'::jsonb), p.api_schema,
        COALESCE(h.healthy, TRUE), h.checked_at, COALESCE(h.latency_ms,0),
        COALESCE(h.status_code,0), COALESCE(h.error,'')
 FROM virtual_model_targets t
@@ -549,24 +552,17 @@ ORDER BY t.role DESC, t.priority DESC, t.created_at ASC`, virtualModelID)
 func scanTarget(row rowScanner) (VirtualModelTarget, error) {
 	var t VirtualModelTarget
 	h := TargetHealth{}
-	var modelOverrides, providerOverrides []byte
+	var modelSchema, providerSchema []byte
 	err := row.Scan(&t.ID, &t.VirtualModelID, &t.Role, &t.ProviderID, &t.ProviderName, &t.ProviderBaseURL,
 		&t.ProviderModelID, &t.UpstreamModel, &t.UpstreamModel,
-		&t.Weight, &t.Priority, &t.Enabled, &t.SupportedAPITypes, &modelOverrides,
-		&t.ProviderAPITypes, &providerOverrides,
+		&t.Weight, &t.Priority, &t.Enabled, &modelSchema, &providerSchema,
 		&h.Healthy, &h.CheckedAt, &h.LatencyMS, &h.StatusCode, &h.Error)
 	if err != nil {
 		return t, err
 	}
-	if len(modelOverrides) > 0 {
-		_ = json.Unmarshal(modelOverrides, &t.PathOverrides)
-	}
-	if len(providerOverrides) > 0 {
-		_ = json.Unmarshal(providerOverrides, &t.ProviderPathOverrides)
-	}
-	// Report the protocols the upstream can actually speak in the canonical
-	// fallback order, so the console shows the same order the gateway uses.
-	t.SupportedAPITypes = SupportedAPITypes(t.SupportedAPITypes, t.ProviderAPITypes)
+	// Report the effective schema so the console previews exactly what the
+	// gateway resolves at request time.
+	t.APISchema = ResolveAPISchema(decodeAPISchema(modelSchema), decodeAPISchema(providerSchema))
 	t.Health = &h
 	return t, nil
 }
@@ -679,41 +675,6 @@ func (s *Store) DeleteVirtualModel(ctx context.Context, id string) error {
 	return nil
 }
 
-func DefaultPath(apiType string) string {
-	switch apiType {
-	case APIResponses:
-		return "/v1/responses"
-	case APIMessages:
-		return "/v1/messages"
-	default:
-		return "/v1/chat/completions"
-	}
-}
-
-func normalizeAPIType(v string) string {
-	switch v {
-	case APIResponses, APIMessages:
-		return v
-	default:
-		return APIChatCompletions
-	}
-}
-
-// normalizeAPITypesOrEmpty dedupes while preserving "unset" (empty) semantics,
-// which lets a provider inherit the built-in protocol defaults.
-func normalizeAPITypesOrEmpty(v []string) []string {
-	seen := map[string]bool{}
-	out := make([]string, 0, len(v))
-	for _, item := range v {
-		item = normalizeAPIType(item)
-		if !seen[item] {
-			seen[item] = true
-			out = append(out, item)
-		}
-	}
-	return out
-}
-
 func normalizeRetryPolicy(v string) string {
 	if v == "fixed" {
 		return v
@@ -749,9 +710,8 @@ func (s *Store) ListHealthProbeTargets(ctx context.Context) ([]HealthProbeTarget
 	rows, err := s.pool.Query(ctx, `
 SELECT t.id, p.id, p.name, p.base_url, p.auth_type, p.api_key_ciphertext, p.headers,
        t.upstream_model,
-       p.api_types, p.path_overrides,
-       COALESCE(pm.model_id,''), COALESCE(pm.api_types,'{}'::text[]),
-       COALESCE(pm.path_overrides,'{}'::jsonb),
+       p.api_schema,
+       COALESCE(pm.model_id,''), COALESCE(pm.api_schema,'{}'::jsonb),
        p.proxy_type, p.proxy_url, p.proxy_username, p.proxy_password_ciphertext
 FROM virtual_model_targets t
 JOIN providers p ON p.id=t.provider_id
@@ -766,16 +726,14 @@ WHERE t.enabled=TRUE AND p.enabled=TRUE AND (t.provider_model_id IS NULL OR pm.e
 		var t HealthProbeTarget
 		var ct string
 		var headers []byte
-		var providerTypes []string
-		var providerOverridesRaw []byte
+		var providerSchemaRaw []byte
 		var modelID string
-		var modelTypes []string
-		var modelOverridesRaw []byte
+		var modelSchemaRaw []byte
 		var proxyCT string
 		if err := rows.Scan(&t.TargetID, &t.ProviderID, &t.ProviderName, &t.BaseURL, &t.AuthType,
 			&ct, &headers,
-			&t.UpstreamModel, &providerTypes, &providerOverridesRaw,
-			&modelID, &modelTypes, &modelOverridesRaw,
+			&t.UpstreamModel, &providerSchemaRaw,
+			&modelID, &modelSchemaRaw,
 			&t.Proxy.Type, &t.Proxy.URL, &t.Proxy.Username, &proxyCT); err != nil {
 			return nil, err
 		}
@@ -786,19 +744,12 @@ WHERE t.enabled=TRUE AND p.enabled=TRUE AND (t.provider_model_id IS NULL OR pm.e
 			t.Proxy.Password, _ = s.cipher.Decrypt(proxyCT)
 		}
 		t.Headers = decodeHeaders(headers)
-		providerOverrides := map[string]string{}
-		if len(providerOverridesRaw) > 0 {
-			_ = json.Unmarshal(providerOverridesRaw, &providerOverrides)
-		}
-		modelOverrides := map[string]string{}
-		if len(modelOverridesRaw) > 0 {
-			_ = json.Unmarshal(modelOverridesRaw, &modelOverrides)
-		}
 		if modelID != "" {
 			t.UpstreamModel = modelID
 		}
-		t.APIType = ChooseUpstreamAPIType(modelTypes, providerTypes, "")
-		t.UpstreamPath = ResolvePath(modelOverrides, providerOverrides, t.APIType)
+		schema := ResolveAPISchema(decodeAPISchema(modelSchemaRaw), decodeAPISchema(providerSchemaRaw))
+		t.APIType = ChooseUpstreamAPIType(schema, "")
+		t.Endpoint = schema[t.APIType].Endpoint
 		out = append(out, t)
 	}
 	return out, rows.Err()

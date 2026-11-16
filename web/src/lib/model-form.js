@@ -52,6 +52,8 @@ export function modelToForm(model) {
     display_name: model.display_name ?? '',
     context_window: formatTokenBudget(model.context_window),
     max_output_tokens: formatTokenBudget(model.max_output_tokens),
+    // Stored as-is: an empty schema means "inherit from the provider".
+    api_schema: model.api_schema || {},
     cost: {
       currency: cost.currency || 'USD',
       input: Number(cost.input) || 0,
@@ -73,8 +75,10 @@ export function modelToForm(model) {
 /**
  * Convert an editable model row into the admin API payload.
  *
- * API format overrides are kept out of the editor on purpose: the provider-level
- * formats already cover the common case and the gateway validates support.
+ * The API schema is kept out of the editor on purpose: the provider-level
+ * schema already covers the common case and the gateway validates support. The
+ * value is passed through untouched so an unset model schema keeps inheriting
+ * from its provider.
  */
 export function modelToPayload(form) {
   return {
@@ -99,8 +103,7 @@ export function modelToPayload(form) {
         .sort((a, b) => a.input_tokens_above - b.input_tokens_above)
     },
     enabled: form.enabled,
-    api_types: [],
-    path_overrides: {}
+    api_schema: form.api_schema || {}
   };
 }
 
