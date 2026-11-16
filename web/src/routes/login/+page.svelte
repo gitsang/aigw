@@ -106,8 +106,9 @@
             <h2 class="text-sm font-semibold tracking-tight">{t('auth.heading')}</h2>
           </div>
           <p class="text-xs text-muted-foreground">
-            {t('auth.hint')}
-            <code class="rounded bg-muted px-1 py-0.5 font-mono">{t('auth.hintConfigKey')}</code>.
+            {t('auth.hint')}<code class="rounded bg-muted px-1 py-0.5 font-mono"
+              >{t('auth.hintConfigKey')}</code
+            >{t('auth.hintTail')}
           </p>
         </div>
 

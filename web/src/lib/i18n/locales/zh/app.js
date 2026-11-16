@@ -2,6 +2,9 @@
 export default {
   brand: 'AI Gateway',
   sidebarGroup: '控制台',
+  sidebar: {
+    toggle: '切换侧边栏'
+  },
   logout: '退出管理',
   theme: {
     toggle: '切换主题'

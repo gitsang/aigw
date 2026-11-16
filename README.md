@@ -69,6 +69,8 @@ checks, retries/fallbacks, and a SvelteKit management console.
   - Logs & statistics
   - Settings (auto model matching)
   - Light/dark theme, responsive sidebar, toasts and accessible dialogs out of the box.
+  - English and Chinese UI with a language switcher; English is the default
+    (see [Console languages](#console-languages)).
 
 ## Architecture
 
@@ -300,6 +302,28 @@ Behavior:
 The example virtual model can be created through the **Virtual Model** page;
 providers with a health endpoint and pricing for cost calculation live on the
 Model Provider page.
+
+## Console languages
+
+The console ships with an English and a Chinese UI. English is the default and
+the fallback: any message missing from the active dictionary falls back to
+English, so a gap never renders as an empty string.
+
+Switch languages with the globe icon in the console header (or on the login
+page). The choice is stored in `localStorage` under `aigw_locale` and also
+updates `<html lang>`. Numbers, prices, durations and timestamps follow the
+active locale.
+
+Messages live in `web/src/lib/i18n/locales/<locale>/`, one module per feature
+namespace (`common`, `nav`, `auth`, `app`, `settings`, `providers`, `models`,
+`logs`, `keys`, `virtualModels`). English plural forms are opt-in: a dictionary
+may define `<key>_one` / `<key>_other` next to the plain key, which is what
+Chinese uses.
+
+To add a language: add its id to `LOCALES` in `web/src/lib/i18n/index.svelte.js`,
+add a `locales/<id>/` directory mirroring the English namespaces, and register it
+in both `locales/<id>/index.js` and `DICTIONARIES`. The language switcher then
+picks it up automatically.
 
 ## API (admin)
 

@@ -1,5 +1,6 @@
 <script>
 	import { cn } from "$lib/utils.js";
+	import { t } from "$lib/i18n/index.svelte.js";
 	import { useSidebar } from "./context.svelte.js";
 	let {
 		ref = $bindable(null),
@@ -15,10 +16,10 @@
 	bind:this={ref}
 	data-sidebar="rail"
 	data-slot="sidebar-rail"
-	aria-label="Toggle Sidebar"
+	aria-label={t('app.sidebar.toggle')}
 	tabindex={-1}
 	onclick={sidebar.toggle}
-	title="Toggle Sidebar"
+	title={t('app.sidebar.toggle')}
 	class={cn(
 		"hover:after:bg-sidebar-border absolute inset-y-0 z-20 hidden w-4 transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:start-1/2 after:w-[2px] sm:flex ltr:-translate-x-1/2 rtl:-translate-x-1/2",
 		"in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",

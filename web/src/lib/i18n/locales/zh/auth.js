@@ -10,7 +10,8 @@ export default {
     cost: '逐请求 token 与成本核算'
   },
   heading: '管理控制台登录',
-  hint: '输入服务端配置的',
+  hint: '输入服务端配置的 ',
+  hintTail: '。',
   hintConfigKey: 'server.admin_token',
   tokenLabel: 'Admin Token',
   tokenPlaceholder: 'admin token',

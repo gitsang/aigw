@@ -11,7 +11,8 @@ export default {
     cost: 'Per-request token and cost accounting'
   },
   heading: 'Admin console sign-in',
-  hint: 'Enter the token configured as',
+  hint: 'Enter the token configured as ',
+  hintTail: '.',
   hintConfigKey: 'server.admin_token',
   tokenLabel: 'Admin Token',
   tokenPlaceholder: 'admin token',

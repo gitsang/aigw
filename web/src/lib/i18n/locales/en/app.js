@@ -2,6 +2,9 @@
 export default {
   brand: 'AI Gateway',
   sidebarGroup: 'Console',
+  sidebar: {
+    toggle: 'Toggle sidebar'
+  },
   logout: 'Sign out',
   theme: {
     toggle: 'Toggle theme'
