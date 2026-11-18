@@ -182,6 +182,15 @@ func probeBody(t store.HealthProbeTarget) map[string]any {
 			"model": t.UpstreamModel, "max_tokens": 1, "stream": false,
 			"messages": []map[string]any{{"role": "user", "content": "ping"}},
 		}
+	case store.APIInteractions:
+		// The Interactions API keeps generation knobs inside generation_config
+		// and accepts a bare string as input.
+		return map[string]any{
+			"model":             t.UpstreamModel,
+			"input":             "ping",
+			"generation_config": map[string]any{"max_output_tokens": 1},
+			"stream":            false,
+		}
 	default:
 		return map[string]any{
 			"model": t.UpstreamModel, "max_tokens": 1, "stream": false,

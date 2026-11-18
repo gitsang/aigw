@@ -71,9 +71,11 @@ export default {
     maxBackoff: 'Max backoff (ms)'
   },
   policy: {
-    fallbackFirst:
-      'fallback-first · try all LB targets first each round, then fall back, retrying the whole cycle',
-    retryFirst: 'retry-first · retry a single target N times before switching, falling back last',
+    fallbackFirst: 'Fallback first',
+    fallbackFirstHint:
+      'Try all LB targets first in each round, then fall back, retrying the whole cycle',
+    retryFirst: 'Retry first',
+    retryFirstHint: 'Retry a single target N times before switching, falling back last',
     exponential: 'Exponential backoff',
     fixed: 'Fixed backoff'
   },

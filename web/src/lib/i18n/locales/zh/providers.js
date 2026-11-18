@@ -52,6 +52,7 @@ export default {
     auth: {
       bearer: 'Authorization: Bearer',
       xApiKey: 'x-api-key',
+      xGoogApiKey: 'x-goog-api-key（Google）',
       none: '无认证'
     },
     apiKey: 'API Key',
@@ -64,7 +65,7 @@ export default {
   protocols: {
     title: '上游协议',
     description:
-      '勾选该上游支持的协议（OpenAI Chat Completions / Responses / Anthropic Messages）；Endpoint 留空则使用内置默认值。',
+      '勾选该上游支持的协议（OpenAI Chat Completions / Responses、Anthropic Messages、Gemini Interactions）；Endpoint 留空则使用内置默认值。',
     endpointAria: '{protocol} Endpoint'
   },
   request: {
@@ -76,7 +77,6 @@ export default {
     retryDisabled: '未启用',
     retryCount: '重试次数',
     backoff: '退避策略',
-    backoffPlaceholder: 'exponential',
     backoffExponential: '指数退避 (exponential)',
     backoffLinear: '线性退避 (linear)',
     retryInitial: '基础退避 (ms)',

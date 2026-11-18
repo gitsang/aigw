@@ -56,11 +56,60 @@
     targets: [blankTarget('lb'), blankTarget('fallback')]
   });
 
+  /* Select options are defined once per select and reused for the closed
+   * trigger (`items`), the option list and the read-only card badges, so the
+   * three can never drift apart. `labelKey`/`hintKey` resolve through `t()`
+   * inside the `$derived` below, which re-runs when the locale changes; the two
+   * target roles are protocol jargon and keep a literal label in every locale. */
+  const fallbackPolicyOptions = [
+    {
+      value: 'fallback-first',
+      labelKey: 'virtualModels.policy.fallbackFirst',
+      hintKey: 'virtualModels.policy.fallbackFirstHint'
+    },
+    {
+      value: 'retry-first',
+      labelKey: 'virtualModels.policy.retryFirst',
+      hintKey: 'virtualModels.policy.retryFirstHint'
+    }
+  ];
+  const retryPolicyOptions = [
+    { value: 'exponential', labelKey: 'virtualModels.policy.exponential' },
+    { value: 'fixed', labelKey: 'virtualModels.policy.fixed' }
+  ];
+  const targetRoleOptions = [
+    { value: 'lb', label: 'LB' },
+    { value: 'fallback', label: 'Fallback' }
+  ];
+
+  const keyedItems = (options) =>
+    options.map((option) => ({
+      value: option.value,
+      label: t(option.labelKey),
+      hint: option.hintKey ? t(option.hintKey) : ''
+    }));
+
+  const fallbackPolicyItems = $derived(keyedItems(fallbackPolicyOptions));
+  const retryPolicyItems = $derived(keyedItems(retryPolicyOptions));
+  const targetRoleItems = $derived(
+    targetRoleOptions.map((option) => ({ value: option.value, label: option.label }))
+  );
+
+  /** Label of a raw backend value for read-only badges; unknown values fall
+   * back to the raw value so data written by an older backend stays visible. */
+  const labelOf = (items, value) => items.find((item) => item.value === value)?.label ?? value;
+
   let virtualModels = $state([]);
   let providers = $state([]);
   let providerModels = $state({});
   let loading = $state(true);
   let error = $state('');
+
+  /** Provider options for the target selects, derived from the loaded provider
+   * list so a closed trigger resolves the name from data. */
+  const providerItems = $derived(
+    providers.map((provider) => ({ value: provider.id, label: provider.name }))
+  );
 
   let modalOpen = $state(false);
   let editingId = $state(null);
@@ -164,15 +213,6 @@
   function providerOf(target) {
     return providers.find((provider) => provider.id === target.provider_id);
   }
-  /** Labels for the select triggers. bits-ui only resolves an item's label once
-   * its content has been mounted, so a closed select would otherwise show the
-   * raw provider/model id. */
-  function providerLabelOf(target) {
-    return providerOf(target)?.name || '';
-  }
-  function modelLabelOf(target) {
-    return modelOf(target)?.model_id || '';
-  }
   function updateTarget(index, patch) {
     form.targets = form.targets.map((target, i) =>
       i === index ? { ...target, ...patch } : target
@@ -184,9 +224,9 @@
     return effectiveAPISchema(modelOf(target)?.api_schema, providerOf(target)?.api_schema);
   }
   /** Protocols the selected upstream model (or its provider) can speak, in the
-   * fixed order chat.completions → responses → messages. This is read-only: a
-   * target always forwards the inbound protocol when the upstream supports it
-   * and otherwise falls back to the first entry of this list. */
+   * fixed order chat.completions → responses → messages → interactions. This is
+   * read-only: a target always forwards the inbound protocol when the upstream
+   * supports it and otherwise falls back to the first entry of this list. */
   function supportedProtocols(target) {
     return apiSchemaProtocols(previewSchema(target));
   }
@@ -332,8 +372,12 @@
                     ? t('virtualModels.state.enabled')
                     : t('virtualModels.state.disabled')}
                 </StatusBadge>
-                <StatusBadge tone="violet">{vm.fallback_policy}</StatusBadge>
-                <StatusBadge tone="warning">{vm.retry_policy} · {vm.retry_count}x</StatusBadge>
+                <StatusBadge tone="violet">
+                  {labelOf(fallbackPolicyItems, vm.fallback_policy)}
+                </StatusBadge>
+                <StatusBadge tone="warning">
+                  {labelOf(retryPolicyItems, vm.retry_policy)} · {vm.retry_count}x
+                </StatusBadge>
               </div>
               <div class="text-[11px] text-muted-foreground">
                 {t('virtualModels.card.meta', {
@@ -381,7 +425,7 @@
                 >
                   <div>
                     <StatusBadge tone={target.role === 'fallback' ? 'warning' : 'primary'}>
-                      {target.role === 'fallback' ? 'Fallback' : 'LB'}
+                      {labelOf(targetRoleItems, target.role)}
                     </StatusBadge>
                   </div>
                   <div class="min-w-0">
@@ -487,17 +531,30 @@
     <div class="grid gap-3 sm:grid-cols-2">
       <div class="grid gap-1.5 sm:col-span-2">
         <Label for="r-fallback">{t('virtualModels.form.fallbackPolicy')}</Label>
-        <Select.Root type="single" bind:value={form.fallback_policy}>
-          <Select.Trigger class="w-full" id="r-fallback">
-            <Select.Value placeholder="fallback-first" />
+        <Select.Root
+          type="single"
+          bind:value={form.fallback_policy}
+          items={fallbackPolicyItems}
+        >
+          <Select.Trigger class="w-full max-w-xs" id="r-fallback">
+            <Select.Value placeholder={fallbackPolicyItems[0]?.label} />
           </Select.Trigger>
           <Select.Content>
-            <Select.Item value="fallback-first" label="fallback-first">
-              {t('virtualModels.policy.fallbackFirst')}
-            </Select.Item>
-            <Select.Item value="retry-first" label="retry-first">
-              {t('virtualModels.policy.retryFirst')}
-            </Select.Item>
+            {#each fallbackPolicyItems as option (option.value)}
+              <Select.Item value={option.value} label={option.label} class="pr-7">
+                <!-- The shadcn item wrapper is `shrink-0 whitespace-nowrap`, so the
+                     wrapping corner needs an explicit cap: without max-w the hint
+                     sentence would set the popup width instead of wrapping. -->
+                <span
+                  class="flex min-w-0 max-w-[20rem] flex-1 flex-col items-start gap-0.5 whitespace-normal"
+                >
+                  <span>{option.label}</span>
+                  <span class="whitespace-normal text-[10.5px] leading-snug text-muted-foreground">
+                    {option.hint}
+                  </span>
+                </span>
+              </Select.Item>
+            {/each}
           </Select.Content>
         </Select.Root>
       </div>
@@ -507,17 +564,16 @@
       </div>
       <div class="grid gap-1.5">
         <Label for="r-policy">{t('virtualModels.form.retryPolicy')}</Label>
-        <Select.Root type="single" bind:value={form.retry_policy}>
+        <Select.Root type="single" bind:value={form.retry_policy} items={retryPolicyItems}>
           <Select.Trigger class="w-full" id="r-policy">
-            <Select.Value placeholder="exponential" />
+            <Select.Value placeholder={retryPolicyItems[0]?.label} />
           </Select.Trigger>
           <Select.Content>
-            <Select.Item value="exponential" label={t('virtualModels.policy.exponential')}
-              >{t('virtualModels.policy.exponential')}</Select.Item
-            >
-            <Select.Item value="fixed" label={t('virtualModels.policy.fixed')}
-              >{t('virtualModels.policy.fixed')}</Select.Item
-            >
+            {#each retryPolicyItems as option (option.value)}
+              <Select.Item value={option.value} label={option.label}>
+                <span class="max-w-[20rem] whitespace-normal">{option.label}</span>
+              </Select.Item>
+            {/each}
           </Select.Content>
         </Select.Root>
       </div>
@@ -541,7 +597,7 @@
             {t('virtualModels.targets.descriptionPrefix')}<b class="text-foreground"
               >{t('virtualModels.targets.descriptionBold')}</b
             >{t('virtualModels.targets.descriptionMiddle')}
-            <span class="font-mono">chat.completions → responses → messages</span>
+            <span class="font-mono">chat.completions → responses → messages → interactions</span>
             {t('virtualModels.targets.descriptionSuffix')}
           </p>
         </div>
@@ -558,10 +614,14 @@
       </div>
 
       {#each form.targets as target, index (index)}
+        {@const targetModelItems = modelsFor(target.provider_id).map((model) => ({
+          value: model.id,
+          label: model.model_id
+        }))}
         <div class="space-y-2 rounded-lg border bg-muted/30 p-2.5">
           <div class="flex items-center justify-between gap-2">
             <StatusBadge tone={target.role === 'fallback' ? 'warning' : 'primary'}>
-              {target.role === 'fallback' ? 'Fallback' : 'LB'}
+              {labelOf(targetRoleItems, target.role)}
             </StatusBadge>
             <Button
               variant="ghost"
@@ -579,13 +639,16 @@
               <Label for={`t-role-${index}`} class="text-[10px] text-muted-foreground"
                 >{t('virtualModels.target.role')}</Label
               >
-              <Select.Root type="single" bind:value={target.role}>
+              <Select.Root type="single" bind:value={target.role} items={targetRoleItems}>
                 <Select.Trigger class="w-full" id={`t-role-${index}`}>
-                  <Select.Value placeholder="LB" />
+                  <Select.Value placeholder={targetRoleItems[0]?.label} />
                 </Select.Trigger>
                 <Select.Content>
-                  <Select.Item value="lb" label="LB">LB</Select.Item>
-                  <Select.Item value="fallback" label="Fallback">Fallback</Select.Item>
+                  {#each targetRoleItems as option (option.value)}
+                    <Select.Item value={option.value} label={option.label}>
+                      {option.label}
+                    </Select.Item>
+                  {/each}
                 </Select.Content>
               </Select.Root>
             </div>
@@ -596,17 +659,16 @@
               <Select.Root
                 type="single"
                 bind:value={target.provider_id}
+                items={providerItems}
                 onValueChange={() => onProviderChange(index)}
               >
                 <Select.Trigger class="w-full" id={`t-provider-${index}`}>
-                  <Select.Value placeholder={t('virtualModels.target.selectProvider')}
-                    >{providerLabelOf(target)}</Select.Value
-                  >
+                  <Select.Value placeholder={t('virtualModels.target.selectProvider')} />
                 </Select.Trigger>
                 <Select.Content>
-                  {#each providers as provider (provider.id)}
-                    <Select.Item value={provider.id} label={provider.name}>
-                      {provider.name}
+                  {#each providerItems as option (option.value)}
+                    <Select.Item value={option.value} label={option.label}>
+                      {option.label}
                     </Select.Item>
                   {/each}
                 </Select.Content>
@@ -619,15 +681,16 @@
               <Select.Root
                 type="single"
                 bind:value={target.provider_model_id}
+                items={targetModelItems}
               >
                 <Select.Trigger class="w-full" id={`t-model-${index}`}>
-                  <Select.Value placeholder={t('virtualModels.target.selectModel')}
-                    >{modelLabelOf(target)}</Select.Value
-                  >
+                  <Select.Value placeholder={t('virtualModels.target.selectModel')} />
                 </Select.Trigger>
                 <Select.Content>
-                  {#each modelsFor(target.provider_id) as model (model.id)}
-                    <Select.Item value={model.id} label={model.model_id}>{model.model_id}</Select.Item>
+                  {#each targetModelItems as option (option.value)}
+                    <Select.Item value={option.value} label={option.label}>
+                      {option.label}
+                    </Select.Item>
                   {/each}
                 </Select.Content>
               </Select.Root>

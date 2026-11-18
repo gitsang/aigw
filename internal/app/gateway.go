@@ -50,6 +50,8 @@ func apiTypeForPath(path string) string {
 		return translate.APIResponses
 	case "/v1/messages", "/messages":
 		return translate.APIMessages
+	case "/v1beta/interactions", "/v1/interactions":
+		return translate.APIInteractions
 	default:
 		return translate.APIChat
 	}
@@ -381,6 +383,13 @@ func writeStreamError(w *sse.Writer, apiType, msg string) {
 		})
 	case translate.APIResponses:
 		_ = w.WriteEvent("error", map[string]any{"type": "error", "message": msg, "code": "upstream_error"})
+	case translate.APIInteractions:
+		// The SSE response has already been opened with HTTP 200, so the
+		// failure is reported in-band. Google's error event carries the same
+		// error envelope as the JSON API plus the event_type marker.
+		body := googleErrorBody(http.StatusInternalServerError, msg)
+		body["event_type"] = "error"
+		_ = w.WriteEvent("error", body)
 	default:
 		_ = w.WriteEvent("", map[string]any{
 			"error": map[string]any{"message": msg, "type": "upstream_error", "code": "upstream_error"},
@@ -447,6 +456,17 @@ func minInt(a, b int) int {
 }
 
 func (a *App) authenticateAPIKey(r *http.Request) (store.APIKey, error) {
+	key := inboundAPIKey(r)
+	if key == "" {
+		return store.APIKey{}, errors.New("missing API key")
+	}
+	return a.store.AuthenticateAPIKey(r.Context(), key)
+}
+
+// inboundAPIKey extracts the gateway API key from the request headers. Google
+// Gemini clients use x-goog-api-key; Anthropic clients use x-api-key; everyone
+// else uses Authorization: Bearer.
+func inboundAPIKey(r *http.Request) string {
 	key := ""
 	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
 		key = strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
@@ -455,9 +475,9 @@ func (a *App) authenticateAPIKey(r *http.Request) (store.APIKey, error) {
 		key = strings.TrimSpace(r.Header.Get("x-api-key"))
 	}
 	if key == "" {
-		return store.APIKey{}, errors.New("missing API key")
+		key = strings.TrimSpace(r.Header.Get("x-goog-api-key"))
 	}
-	return a.store.AuthenticateAPIKey(r.Context(), key)
+	return key
 }
 
 func writeGatewayError(w http.ResponseWriter, apiType string, status int, code, message string) {
@@ -470,9 +490,51 @@ func writeGatewayError(w http.ResponseWriter, apiType string, status int, code, 
 		})
 		return
 	}
+	if apiType == translate.APIInteractions {
+		writeJSON(w, googleErrorBody(status, message))
+		return
+	}
 	writeJSON(w, map[string]any{
 		"error": map[string]any{"message": message, "type": code, "code": code},
 	})
+}
+
+// googleErrorBody renders Google's standard error envelope, deriving the
+// canonical status string from the HTTP status code.
+func googleErrorBody(status int, message string) map[string]any {
+	return map[string]any{
+		"error": map[string]any{
+			"code":    status,
+			"message": message,
+			"status":  googleErrorStatus(status),
+		},
+	}
+}
+
+// googleErrorStatus maps an HTTP status to the Google API status string.
+func googleErrorStatus(status int) string {
+	switch status {
+	case http.StatusBadRequest:
+		return "INVALID_ARGUMENT"
+	case http.StatusUnauthorized:
+		return "UNAUTHENTICATED"
+	case http.StatusForbidden:
+		return "PERMISSION_DENIED"
+	case http.StatusNotFound:
+		return "NOT_FOUND"
+	case http.StatusConflict:
+		return "ABORTED"
+	case http.StatusTooManyRequests:
+		return "RESOURCE_EXHAUSTED"
+	case http.StatusInternalServerError:
+		return "INTERNAL"
+	case http.StatusServiceUnavailable:
+		return "UNAVAILABLE"
+	case http.StatusGatewayTimeout:
+		return "DEADLINE_EXCEEDED"
+	default:
+		return "UNKNOWN"
+	}
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

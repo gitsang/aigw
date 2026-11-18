@@ -16,9 +16,78 @@ func ParseResponse(apiType string, body []byte) (Response, error) {
 		return parseResponsesResponse(body)
 	case APIMessages:
 		return parseMessagesResponse(body)
+	case APIInteractions:
+		return parseInteractionsResponse(body)
 	default:
 		return Response{}, fmt.Errorf("unsupported API type %q", apiType)
 	}
+}
+
+// parseInteractionsResponse parses a Google Gemini Interactions API response
+// (non-streaming) into the neutral IR.
+func parseInteractionsResponse(body []byte) (Response, error) {
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		return Response{}, fmt.Errorf("invalid JSON response: %w", err)
+	}
+	out := Response{
+		ID:      stringValue(m["id"]),
+		Model:   stringValue(m["model"]),
+		Created: parseRFC3339(m["created"]),
+	}
+	if out.Created == 0 {
+		out.Created = time.Now().Unix()
+	}
+	if usage, ok := m["usage"].(map[string]any); ok {
+		out.Usage = Usage{
+			PromptTokens:     intValue(usage["total_input_tokens"]),
+			CompletionTokens: intValue(usage["total_output_tokens"]),
+			TotalTokens:      intValue(usage["total_tokens"]),
+			CacheReadTokens:  intValue(usage["total_cached_tokens"]),
+		}
+	}
+	steps, _ := m["steps"].([]any)
+	for _, raw := range steps {
+		step, _ := raw.(map[string]any)
+		switch stringValue(step["type"]) {
+		case "model_output":
+			out.Content += interactionsContentText(step["content"])
+		case "function_call":
+			out.ToolCalls = append(out.ToolCalls, ToolCall{
+				ID:        stringValue(step["id"]),
+				Type:      "function",
+				Name:      stringValue(step["name"]),
+				Arguments: interactionsArgumentsString(step["arguments"]),
+			})
+		default:
+			// thought, thought_signature and server-side tool steps carry
+			// nothing the IR can express.
+		}
+	}
+	// A tool call always wins: the downstream clients key their follow-up
+	// request off the tool_calls finish reason.
+	if len(out.ToolCalls) > 0 {
+		out.FinishReason = "tool_calls"
+	} else if stringValue(m["status"]) == "incomplete" {
+		out.FinishReason = "length"
+	} else {
+		out.FinishReason = "stop"
+	}
+	return out, nil
+}
+
+// parseRFC3339 reads an RFC3339 timestamp and returns it as Unix seconds.
+func parseRFC3339(v any) int64 {
+	s, ok := v.(string)
+	if !ok || s == "" {
+		return 0
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05Z"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.Unix()
+		}
+	}
+	return 0
 }
 
 func parseChatResponse(body []byte) (Response, error) {
@@ -204,9 +273,57 @@ func BuildResponse(apiType string, r Response, requestedModel string) ([]byte, e
 		return buildResponsesResponse(r, model)
 	case APIMessages:
 		return buildMessagesResponse(r, model)
+	case APIInteractions:
+		return buildInteractionsResponse(r, model)
 	default:
 		return nil, fmt.Errorf("unsupported API type %q", apiType)
 	}
+}
+
+// buildInteractionsResponse renders the IR as a Google Gemini Interactions API
+// Interaction resource.
+func buildInteractionsResponse(r Response, model string) ([]byte, error) {
+	steps := []map[string]any{}
+	if r.Content != "" || len(r.ToolCalls) == 0 {
+		steps = append(steps, map[string]any{
+			"type":    "model_output",
+			"content": []map[string]any{{"type": "text", "text": r.Content}},
+		})
+	}
+	for _, c := range r.ToolCalls {
+		id := c.ID
+		if id == "" {
+			id = "call_" + randomSuffix()
+		}
+		steps = append(steps, map[string]any{
+			"type": "function_call", "id": id, "name": c.Name,
+			"arguments": interactionsArgumentsObject(c.Arguments),
+		})
+	}
+	status := "completed"
+	switch finishReason(r) {
+	case "length":
+		status = "incomplete"
+	case "tool_calls":
+		status = "requires_action"
+	}
+	created := time.Unix(r.Created, 0).UTC().Format(time.RFC3339)
+	out := map[string]any{
+		"id":      responseID(r.ID, APIInteractions),
+		"object":  "interaction",
+		"status":  status,
+		"model":   model,
+		"created": created,
+		"updated": created,
+		"steps":   steps,
+		"usage": map[string]any{
+			"total_input_tokens":  r.Usage.PromptTokens,
+			"total_output_tokens": r.Usage.CompletionTokens,
+			"total_tokens":        totalTokens(r.Usage),
+			"total_cached_tokens": r.Usage.CacheReadTokens,
+		},
+	}
+	return json.Marshal(out)
 }
 
 func finishReason(r Response) string {
@@ -330,6 +447,8 @@ func responseID(id, apiType string) string {
 		prefix = "resp_"
 	case APIMessages:
 		prefix = "msg_"
+	case APIInteractions:
+		prefix = "v1_"
 	}
 	if strings.HasPrefix(id, prefix) {
 		return id

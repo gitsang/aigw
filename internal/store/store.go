@@ -399,9 +399,13 @@ func normalizeSlug(slug, name string) string {
 	return candidate
 }
 
+// normalizeAuthType accepts the authentication schemes the gateway can send.
+// "x-goog-api-key" is the Google Gemini convention; it must survive
+// normalization, otherwise a Gemini provider would silently fall back to
+// Authorization: Bearer and every upstream call would be rejected.
 func normalizeAuthType(v string) string {
 	switch v {
-	case "x-api-key", "none":
+	case "x-api-key", "x-goog-api-key", "none":
 		return v
 	default:
 		return "bearer"

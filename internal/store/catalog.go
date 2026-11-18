@@ -21,7 +21,7 @@ func IsSupportedAPIType(name string) bool {
 
 // DefaultProtocols is the built-in protocol list in canonical fallback order.
 func DefaultProtocols() []string {
-	return []string{APIChatCompletions, APIResponses, APIMessages}
+	return []string{APIChatCompletions, APIResponses, APIMessages, APIInteractions}
 }
 
 // DefaultEndpoint is the built-in upstream path of a protocol.
@@ -31,6 +31,8 @@ func DefaultEndpoint(apiType string) string {
 		return "/v1/responses"
 	case APIMessages:
 		return "/v1/messages"
+	case APIInteractions:
+		return "/v1beta/interactions"
 	default:
 		return "/v1/chat/completions"
 	}

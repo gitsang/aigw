@@ -6,7 +6,12 @@
 export const API_PROTOCOLS = [
   { value: 'chat.completions', label: 'Chat Completions', defaultEndpoint: '/v1/chat/completions' },
   { value: 'responses', label: 'Responses', defaultEndpoint: '/v1/responses' },
-  { value: 'messages', label: 'Messages', defaultEndpoint: '/v1/messages' }
+  { value: 'messages', label: 'Messages', defaultEndpoint: '/v1/messages' },
+  {
+    value: 'interactions',
+    label: 'Interactions',
+    defaultEndpoint: '/v1beta/interactions'
+  }
 ];
 
 export const API_PROTOCOL_VALUES = API_PROTOCOLS.map((protocol) => protocol.value);

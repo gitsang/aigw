@@ -104,8 +104,19 @@
   );
   // Empty string means automatic matching to the admin API.
   const syncSourceProvider = $derived(syncSource === AUTO_SOURCE ? '' : syncSource);
+  // One `{ value, label }` pair feeds both `Select.Root items` (so the closed
+  // trigger renders the mapped label from data) and the option list, keeping
+  // the trigger, the menu and the footer summary identical.
+  const syncSourceItems = $derived([
+    { value: AUTO_SOURCE, label: t('providers.sync.autoMatch') },
+    ...syncSources.map((source) => ({
+      value: source.provider_id,
+      label: modelsDevSourceOptionLabel(source)
+    }))
+  ]);
   const syncSourceLabel = $derived(
-    syncSource === AUTO_SOURCE ? t('providers.sync.autoMatch') : modelsDevSourceName(syncSources, syncSource)
+    syncSourceItems.find((item) => item.value === syncSource)?.label ??
+      modelsDevSourceName(syncSources, syncSource)
   );
 
   async function load() {
@@ -878,6 +889,7 @@
         <Select.Root
           type="single"
           bind:value={syncSource}
+          items={syncSourceItems}
           onValueChange={changeSyncSource}
           disabled={syncApplying}
         >
@@ -889,13 +901,8 @@
             <Select.Value placeholder={t('providers.sync.autoMatch')} />
           </Select.Trigger>
           <Select.Content>
-            <Select.Item value={AUTO_SOURCE} label={t('providers.sync.autoMatch')}
-              >{t('providers.sync.autoMatch')}</Select.Item
-            >
-            {#each syncSources as source (source.provider_id)}
-              <Select.Item value={source.provider_id} label={source.provider_name || source.provider_id}>
-                {modelsDevSourceOptionLabel(source)}
-              </Select.Item>
+            {#each syncSourceItems as option (option.value)}
+              <Select.Item value={option.value} label={option.label}>{option.label}</Select.Item>
             {/each}
           </Select.Content>
         </Select.Root>

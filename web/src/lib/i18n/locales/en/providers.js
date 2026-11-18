@@ -53,6 +53,7 @@ export default {
     auth: {
       bearer: 'Authorization: Bearer',
       xApiKey: 'x-api-key',
+      xGoogApiKey: 'x-goog-api-key (Google)',
       none: 'No authentication'
     },
     apiKey: 'API Key',
@@ -65,7 +66,7 @@ export default {
   protocols: {
     title: 'Upstream protocols',
     description:
-      'Tick the protocols this upstream supports (OpenAI Chat Completions / Responses / Anthropic Messages); an empty Endpoint uses the built-in default.',
+      'Tick the protocols this upstream supports (OpenAI Chat Completions / Responses, Anthropic Messages, Gemini Interactions); an empty Endpoint uses the built-in default.',
     endpointAria: '{protocol} Endpoint'
   },
   request: {
@@ -79,7 +80,6 @@ export default {
     retryDisabled: 'Not enabled',
     retryCount: 'Retry count',
     backoff: 'Backoff strategy',
-    backoffPlaceholder: 'exponential',
     backoffExponential: 'Exponential backoff (exponential)',
     backoffLinear: 'Linear backoff (linear)',
     retryInitial: 'Base backoff (ms)',

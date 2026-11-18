@@ -70,8 +70,10 @@ export default {
     maxBackoff: '最大退避 (ms)'
   },
   policy: {
-    fallbackFirst: 'fallback-first · 每轮先尝试全部 LB，再 fallback，整体循环重试',
-    retryFirst: 'retry-first · 单个 target 重试 N 次后切换，最后 fallback',
+    fallbackFirst: '先 LB 后兜底',
+    fallbackFirstHint: '每轮先尝试全部 LB，再 fallback，整体循环重试',
+    retryFirst: '先重试后切换',
+    retryFirstHint: '单个 target 重试 N 次后切换，最后 fallback',
     exponential: '指数退避',
     fixed: '固定退避'
   },

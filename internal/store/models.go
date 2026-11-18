@@ -8,6 +8,8 @@ const (
 	APIChatCompletions = "chat.completions"
 	APIResponses       = "responses"
 	APIMessages        = "messages"
+	// APIInteractions is the Google Gemini Interactions API.
+	APIInteractions = "interactions"
 
 	RoleLB       = "lb"
 	RoleFallback = "fallback"

@@ -260,6 +260,12 @@ func ApplyAuth(h http.Header, target store.RuntimeTarget) {
 		if target.APIKey != "" {
 			h.Set("x-api-key", target.APIKey)
 		}
+	case "x-goog-api-key":
+		// Google Gemini clients and native providers authenticate with this
+		// header instead of Authorization: Bearer.
+		if target.APIKey != "" {
+			h.Set("x-goog-api-key", target.APIKey)
+		}
 	case "none":
 	default:
 		if target.APIKey != "" {
@@ -273,7 +279,7 @@ func ApplyAuth(h http.Header, target store.RuntimeTarget) {
 
 func isSafeHeader(k string) bool {
 	switch strings.ToLower(k) {
-	case "host", "content-length", "authorization", "x-api-key", "connection", "transfer-encoding":
+	case "host", "content-length", "authorization", "x-api-key", "x-goog-api-key", "connection", "transfer-encoding":
 		return false
 	}
 	return true

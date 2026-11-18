@@ -68,6 +68,8 @@ func (s *Server) Handler() http.Handler {
 	r.HandleFunc("/v1/responses", s.gateway.Gateway("responses"))
 	r.HandleFunc("/v1/messages", s.gateway.Gateway("messages"))
 	r.HandleFunc("/messages", s.gateway.Gateway("messages"))
+	r.HandleFunc("/v1beta/interactions", s.gateway.Gateway("interactions"))
+	r.HandleFunc("/v1/interactions", s.gateway.Gateway("interactions"))
 
 	s.admin.Routes(r)
 	// The console page used to live at /routing. Redirect old bookmarks to the
@@ -130,7 +132,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Admin-Token, X-Api-Key, Anthropic-Version, Anthropic-Beta")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Admin-Token, X-Api-Key, X-Goog-Api-Key, Anthropic-Version, Anthropic-Beta")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 		}
 		if r.Method == http.MethodOptions {

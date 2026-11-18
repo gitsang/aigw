@@ -3,7 +3,6 @@ package translate
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"strings"
 )
 
 func randomSuffix() string {
@@ -21,10 +20,8 @@ func randomID(apiType string) string {
 		prefix = "resp_"
 	case APIMessages:
 		prefix = "msg_"
+	case APIInteractions:
+		prefix = "v1_"
 	}
-	s := randomSuffix()
-	if strings.Contains(apiType, "x") { // keep deterministic shape
-		return prefix + s
-	}
-	return prefix + s
+	return prefix + randomSuffix()
 }

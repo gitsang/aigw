@@ -13,12 +13,14 @@ checks, retries/fallbacks, and a SvelteKit management console.
   - `POST /v1/chat/completions` (OpenAI Chat Completions)
   - `POST /v1/responses` (OpenAI Responses)
   - `POST /v1/messages` and `POST /messages` (Anthropic Messages)
+  - `POST /v1beta/interactions` and `POST /v1/interactions`
+    (Google Gemini Interactions API)
 - **Bidirectional protocol translation**
   - Every inbound protocol can be routed to any supported upstream protocol —
     request bodies, non-streaming responses and SSE streams are converted through
     a provider-neutral IR. An inbound protocol the upstream speaks is forwarded
     untouched; otherwise the gateway falls back to `chat.completions`, `responses`,
-    then `messages`.
+    `messages`, then `interactions`.
 - **Model routing**
   - Virtual model names map to a configurable set of targets (edited on the
     console's **Virtual Model** page).
@@ -86,7 +88,7 @@ internal/
   router/             weighted LB and retry/fallback policies
   server/             chi router, middleware, static frontend serving
   store/              pgx pool, schema, queries
-  translate/          Chat Completions ⇄ Responses ⇄ Messages IR + SSE conversion
+  translate/          Chat Completions ⇄ Responses ⇄ Messages ⇄ Interactions IR + SSE conversion
   upstream/           outbound HTTP client and URL/auth handling
 pkg/sse/              SSE reader/writer helpers
 web/                  SvelteKit frontend
@@ -185,29 +187,36 @@ curl http://localhost:8080/v1/messages \
   -H "x-api-key: aigw_..." \
   -H "Content-Type: application/json" \
   -d '{"model":"deepseek-flash","max_tokens":128,"messages":[{"role":"user","content":"hello"}]}'
+
+curl http://localhost:8080/v1beta/interactions \
+  -H "x-goog-api-key: aigw_..." \
+  -H "Content-Type: application/json" \
+  -d '{"model":"deepseek-flash","input":"hello"}'
 ```
 
-Streaming (`"stream": true`) is supported for all three entrypoints, including
+Streaming (`"stream": true`) is supported for all four entrypoints, including
 cross-protocol streaming conversion.
 
 ## Provider configuration → models → virtual models
 
-An **upstream protocol** is one of `chat.completions`, `responses` or `messages`
-— the request/response schema an upstream speaks. Protocols are configured as a
-single `api_schema` document, **per provider and per model**, never per target and
-never per virtual model:
+An **upstream protocol** is one of `chat.completions`, `responses`, `messages` or
+`interactions` — the request/response schema an upstream speaks. Protocols are
+configured as a single `api_schema` document, **per provider and per model**, never
+per target and never per virtual model:
 
 ```json
 "api_schema": {
   "chat.completions": { "enabled": true,  "endpoint": "" },
   "responses":        { "enabled": true,  "endpoint": "" },
-  "messages":         { "enabled": false, "endpoint": "/v1/messages" }
+  "messages":         { "enabled": false, "endpoint": "/v1/messages" },
+  "interactions":     { "enabled": false, "endpoint": "/v1beta/interactions" }
 }
 ```
 
 - `enabled` — whether the upstream speaks that protocol.
 - `endpoint` — the upstream path for it. An empty string means the built-in
-  default (`/v1/chat/completions`, `/v1/responses`, `/v1/messages`).
+  default (`/v1/chat/completions`, `/v1/responses`, `/v1/messages`,
+  `/v1beta/interactions`).
 - `{}` (empty document) means **not configured**: a provider then speaks the
   built-in defaults and a provider model inherits its provider. A non-empty
   document is the complete list, so a protocol missing from it is unsupported.
@@ -232,8 +241,9 @@ Resolution rules for an inbound request:
 - **The inbound protocol is forwarded as-is** whenever that upstream supports it —
   no translation happens in the common case.
 - If the upstream does not support it, the gateway falls back in the fixed order
-  **`chat.completions` → `responses` → `messages`** and takes the first protocol
-  the upstream supports, translating the request/response/stream as needed.
+  **`chat.completions` → `responses` → `messages` → `interactions`** and takes the
+  first protocol the upstream supports, translating the request/response/stream as
+  needed.
 - Targets carry neither a protocol nor an endpoint field: both are resolved from
   the model/provider `api_schema`.
 - Health probes use the same resolved protocol/endpoint (an empty inbound
@@ -302,6 +312,51 @@ Behavior:
 The example virtual model can be created through the **Virtual Model** page;
 providers with a health endpoint and pricing for cost calculation live on the
 Model Provider page.
+
+## Google Gemini (Interactions API)
+
+The fourth protocol is Google's **Interactions API**, which became Google's
+recommended interface for Gemini in June 2026; the older `generateContent` API is
+now legacy but still supported upstream. It is not an OpenAI or Anthropic shape,
+so it gets its own translation target:
+
+- **Inbound**: `POST /v1beta/interactions` and `POST /v1/interactions`, with
+  `x-goog-api-key` accepted as the API-key header (alongside `Authorization:
+  Bearer` and `x-api-key`).
+- **Upstream**: set a provider's `auth_type` to `x-goog-api-key` and enable the
+  `interactions` protocol in its `api_schema`; the default endpoint is
+  `/v1beta/interactions`.
+
+```json
+{
+  "model": "gemini-4-hydrogen",
+  "input": "Explain how AI works in a few words",
+  "generation_config": { "max_output_tokens": 256 },
+  "store": false
+}
+```
+
+Differences the translation layer accounts for:
+
+- Messages are a list of **steps** (`user_input`, `model_output`, `function_result`)
+  rather than a `messages` array, and the system prompt is a top-level
+  `system_instruction` string.
+- `max_output_tokens`, `stop_sequences` and `tool_choice` live under
+  `generation_config`.
+- Tool declarations are flat (`{"type": "function", "name": …, "parameters": …}`),
+  with no nested `function` object.
+- Streaming is a step-based SSE protocol (`step.start` / `step.delta` / `step.stop`
+  plus `interaction.created` / `interaction.completed`), converted to and from the
+  other protocols' SSE shapes.
+- The Interactions API has **no `temperature` or `top_p`** — sampling is steered by
+  `thinking_level`. Those fields are dropped when translating *to* interactions and
+  never cause an error; they still flow between the other three protocols.
+- The gateway sends `store: false` by default so interactions are not retained
+  server-side; callers that pass `previous_interaction_id` still get server-side
+  conversation state.
+
+`Api-Revision` is not a documented Interactions header. If an upstream requires one,
+add it as a custom header on the provider.
 
 ## Console languages
 

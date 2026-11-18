@@ -3,6 +3,7 @@ package translate
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -36,19 +37,31 @@ type StreamConverter struct {
 	msgItemID     string
 	textPart      bool
 	textItemAdded bool
+
+	// Google Gemini Interactions downstream emission state. Steps are numbered
+	// in the order they are opened, matching the upstream step index model.
+	interactNextStep    int
+	interactTextStep    int
+	interactTextOpen    bool
+	interactTextEmitted bool
+	interactStepForTool map[int]int
+	interactOpenSteps   map[int]bool
 }
 
 func NewStreamConverter(upstreamAPI, downstreamAPI, model string) *StreamConverter {
 	return &StreamConverter{
-		UpstreamAPI:   upstreamAPI,
-		DownstreamAPI: downstreamAPI,
-		Model:         model,
-		created:       time.Now().Unix(),
-		tools:         map[int]*ToolCall{},
-		toolKeys:      map[string]int{},
-		blockForTool:  map[int]int{},
-		textBlockIdx:  -1,
-		msgItemID:     "msg_" + randomSuffix(),
+		UpstreamAPI:         upstreamAPI,
+		DownstreamAPI:       downstreamAPI,
+		Model:               model,
+		created:             time.Now().Unix(),
+		tools:               map[int]*ToolCall{},
+		toolKeys:            map[string]int{},
+		blockForTool:        map[int]int{},
+		textBlockIdx:        -1,
+		msgItemID:           "msg_" + randomSuffix(),
+		interactTextStep:    -1,
+		interactStepForTool: map[int]int{},
+		interactOpenSteps:   map[int]bool{},
 	}
 }
 
@@ -68,6 +81,8 @@ func (c *StreamConverter) Feed(ev sse.Event) ([]sse.Event, error) {
 		return c.feedResponses(ev.Event, data)
 	case APIMessages:
 		return c.feedMessages(ev.Event, data)
+	case APIInteractions:
+		return c.feedInteractions(ev.Event, data)
 	default:
 		return nil, fmt.Errorf("unsupported upstream API type %q", c.UpstreamAPI)
 	}
@@ -268,6 +283,198 @@ func (c *StreamConverter) feedMessages(eventName, data string) ([]sse.Event, err
 	return nil, nil
 }
 
+// feedInteractions consumes one Google Gemini Interactions API SSE event.
+func (c *StreamConverter) feedInteractions(eventName, data string) ([]sse.Event, error) {
+	var m map[string]any
+	if err := json.Unmarshal([]byte(data), &m); err != nil {
+		return nil, fmt.Errorf("decode interactions stream event: %w", err)
+	}
+	typ := eventName
+	if typ == "" {
+		typ = stringValue(m["event_type"])
+	}
+	switch typ {
+	case "interaction.created":
+		if obj, ok := m["interaction"].(map[string]any); ok {
+			c.absorbInteractionObject(obj)
+			return c.hydrateFromInteractionObject(obj)
+		}
+	case "interaction.status_update":
+		// Informational only; the terminal event carries the final state.
+	case "step.start":
+		step, _ := m["step"].(map[string]any)
+		if stringValue(step["type"]) == "function_call" {
+			stepIdx := intValue(m["index"])
+			key := fmt.Sprintf("step-%d", stepIdx)
+			idx, ok := c.toolKeys[key]
+			if !ok {
+				idx = c.nextTool
+				c.nextTool++
+				c.toolKeys[key] = idx
+			}
+			id := stringValue(step["id"])
+			if id == "" {
+				id = "call_" + randomSuffix()
+			}
+			evs, err := c.toolStart(idx, id, stringValue(step["name"]))
+			if err != nil {
+				return nil, err
+			}
+			out := evs
+			// The step may carry a non-empty initial arguments object.
+			if args := interactionsArgumentsString(step["arguments"]); args != "" && args != "{}" {
+				more, err := c.toolArgs(idx, args)
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, more...)
+			}
+			return out, nil
+		}
+	case "step.delta":
+		delta, _ := m["delta"].(map[string]any)
+		stepIdx := intValue(m["index"])
+		switch stringValue(delta["type"]) {
+		case "text":
+			if txt, ok := delta["text"].(string); ok && txt != "" {
+				return c.textDelta(txt)
+			}
+		case "arguments_delta":
+			key := fmt.Sprintf("step-%d", stepIdx)
+			idx, ok := c.toolKeys[key]
+			if !ok {
+				idx = c.nextTool
+				c.nextTool++
+				c.toolKeys[key] = idx
+				evs, err := c.toolStart(idx, "", "")
+				if err != nil {
+					return nil, err
+				}
+				more, err := c.toolArgs(idx, stringValue(delta["arguments"]))
+				return append(evs, more...), err
+			}
+			return c.toolArgs(idx, stringValue(delta["arguments"]))
+		}
+		// image, thought_summary, thought_signature and unknown delta types
+		// carry nothing the IR can express.
+	case "step.stop":
+		if usage, ok := m["usage"].(map[string]any); ok {
+			c.absorbInteractionUsage(usage)
+		}
+	case "interaction.completed":
+		var out []sse.Event
+		if obj, ok := m["interaction"].(map[string]any); ok {
+			c.absorbInteractionObject(obj)
+			evs, err := c.hydrateFromInteractionObject(obj)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, evs...)
+		}
+		evs, err := c.finalize()
+		if err != nil {
+			return nil, err
+		}
+		return append(out, evs...), nil
+	case "done":
+		return c.finalize()
+	case "error":
+		msg := stringValue(m["message"])
+		if e, ok := m["error"].(map[string]any); ok {
+			msg = stringValue(e["message"])
+			if msg == "" {
+				msg = stringValue(e["code"])
+			}
+		}
+		if msg == "" {
+			msg = "unknown upstream error"
+		}
+		return nil, fmt.Errorf("upstream interactions stream failed: %s", msg)
+	}
+	return nil, nil
+}
+
+// absorbInteractionObject copies id, timestamps, status and usage out of an
+// Interaction resource.
+func (c *StreamConverter) absorbInteractionObject(obj map[string]any) {
+	if id := stringValue(obj["id"]); id != "" {
+		c.id = id
+	}
+	if created := parseRFC3339(obj["created"]); created > 0 {
+		c.created = created
+	}
+	if usage, ok := obj["usage"].(map[string]any); ok {
+		c.absorbInteractionUsage(usage)
+	}
+	switch stringValue(obj["status"]) {
+	case "incomplete", "cancelled":
+		c.finish = "length"
+	}
+}
+
+// absorbInteractionUsage maps Interactions usage counters onto the IR.
+func (c *StreamConverter) absorbInteractionUsage(usage map[string]any) {
+	c.usage = Usage{
+		PromptTokens:     intValue(usage["total_input_tokens"]),
+		CompletionTokens: intValue(usage["total_output_tokens"]),
+		TotalTokens:      intValue(usage["total_tokens"]),
+		CacheReadTokens:  intValue(usage["total_cached_tokens"]),
+	}
+}
+
+// hydrateFromInteractionObject backfills text and function calls from an
+// assembled Interaction resource, for upstreams that only send the final
+// object rather than step deltas. Content that was not already streamed is
+// routed through the normal delta emitters so every downstream protocol sees
+// it.
+func (c *StreamConverter) hydrateFromInteractionObject(obj map[string]any) ([]sse.Event, error) {
+	steps, _ := obj["steps"].([]any)
+	var out []sse.Event
+	for _, raw := range steps {
+		step, _ := raw.(map[string]any)
+		switch stringValue(step["type"]) {
+		case "model_output":
+			if c.text.Len() == 0 {
+				if txt := interactionsContentText(step["content"]); txt != "" {
+					evs, err := c.textDelta(txt)
+					if err != nil {
+						return nil, err
+					}
+					out = append(out, evs...)
+				}
+			}
+		case "function_call":
+			key := stringValue(step["id"])
+			if key == "" {
+				continue
+			}
+			if _, ok := c.toolKeys[key]; ok {
+				continue
+			}
+			idx := c.nextTool
+			c.nextTool++
+			c.toolKeys[key] = idx
+			id := key
+			if id == "" {
+				id = "call_" + randomSuffix()
+			}
+			evs, err := c.toolStart(idx, id, stringValue(step["name"]))
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, evs...)
+			if args := interactionsArgumentsString(step["arguments"]); args != "" && args != "{}" {
+				more, err := c.toolArgs(idx, args)
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, more...)
+			}
+		}
+	}
+	return out, nil
+}
+
 func (c *StreamConverter) absorbResponseObject(resp map[string]any) {
 	if id := stringValue(resp["id"]); id != "" {
 		c.id = id
@@ -364,6 +571,30 @@ func (c *StreamConverter) textDelta(s string) ([]sse.Event, error) {
 			"output_index": 0, "content_index": 0, "delta": s,
 		}))
 		return out, nil
+	case APIInteractions:
+		out, err := c.ensureInteractionsStart()
+		if err != nil {
+			return nil, err
+		}
+		// A text delta after tool calls is unusual, but a tool step that is
+		// still open must not be re-opened. Eagerly closing it here would leave
+		// later arguments_delta events pointing at a stopped step, so tool
+		// steps stay open until finalize.
+		if !c.interactTextOpen {
+			c.interactTextStep = c.interactNextStep
+			c.interactNextStep++
+			c.interactTextOpen = true
+			out = append(out, interactionsEvent("step.start", map[string]any{
+				"index": c.interactTextStep,
+				"step":  map[string]any{"type": "model_output"},
+			}))
+		}
+		out = append(out, interactionsEvent("step.delta", map[string]any{
+			"index": c.interactTextStep,
+			"delta": map[string]any{"type": "text", "text": s},
+		}))
+		c.interactTextEmitted = true
+		return out, nil
 	}
 	return nil, nil
 }
@@ -426,6 +657,27 @@ func (c *StreamConverter) toolStart(idx int, id, name string) ([]sse.Event, erro
 			},
 		}))
 		return out, nil
+	case APIInteractions:
+		out, err := c.ensureInteractionsStart()
+		if err != nil {
+			return nil, err
+		}
+		// Model output always precedes tool calls, so the text step is done.
+		// Other tool steps stay open until finalize so parallel calls keep
+		// receiving their arguments deltas.
+		out = append(out, c.closeInteractionsTextStep()...)
+		stepIdx := c.interactNextStep
+		c.interactNextStep++
+		c.interactStepForTool[idx] = stepIdx
+		c.interactOpenSteps[stepIdx] = true
+		out = append(out, interactionsEvent("step.start", map[string]any{
+			"index": stepIdx,
+			"step": map[string]any{
+				"type": "function_call", "id": id, "name": name,
+				"arguments": map[string]any{},
+			},
+		}))
+		return out, nil
 	}
 	return nil, nil
 }
@@ -457,6 +709,15 @@ func (c *StreamConverter) toolArgs(idx int, args string) ([]sse.Event, error) {
 		return []sse.Event{eventJSON("response.function_call_arguments.delta", map[string]any{
 			"type": "response.function_call_arguments.delta", "item_id": "fc_" + suffix(t.ID),
 			"output_index": 1 + idx, "delta": args,
+		})}, nil
+	case APIInteractions:
+		stepIdx, ok := c.interactStepForTool[idx]
+		if !ok {
+			return nil, nil
+		}
+		return []sse.Event{interactionsEvent("step.delta", map[string]any{
+			"index": stepIdx,
+			"delta": map[string]any{"type": "arguments_delta", "arguments": args},
 		})}, nil
 	}
 	return nil, nil
@@ -667,13 +928,117 @@ func (c *StreamConverter) finalize() ([]sse.Event, error) {
 				},
 			},
 		}))
+	case APIInteractions:
+		if !c.started {
+			evs, err := c.ensureInteractionsStart()
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, evs...)
+		}
+		// Text that never produced a delta (for example, hydrated from a
+		// complete Interaction resource) is emitted as one final delta so the
+		// downstream stream still carries the full content. Text already sent
+		// as deltas is never repeated.
+		if !c.interactTextEmitted && c.text.Len() > 0 {
+			c.interactTextStep = c.interactNextStep
+			c.interactNextStep++
+			c.interactTextOpen = true
+			out = append(out, interactionsEvent("step.start", map[string]any{
+				"index": c.interactTextStep,
+				"step":  map[string]any{"type": "model_output"},
+			}))
+			out = append(out, interactionsEvent("step.delta", map[string]any{
+				"index": c.interactTextStep,
+				"delta": map[string]any{"type": "text", "text": c.text.String()},
+			}))
+			c.interactTextEmitted = true
+		}
+		out = append(out, c.closeInteractionsTextStep()...)
+		out = append(out, c.closeInteractionsToolSteps()...)
+		stamp := time.Unix(c.created, 0).UTC().Format(time.RFC3339)
+		out = append(out, interactionsEvent("interaction.completed", map[string]any{
+			"interaction": map[string]any{
+				"id": responseID(c.id, APIInteractions), "object": "interaction",
+				"status": c.interactionsStatus(), "model": c.Model,
+				"created": stamp, "updated": stamp,
+				"usage": map[string]any{
+					"total_input_tokens":  c.usage.PromptTokens,
+					"total_output_tokens": c.usage.CompletionTokens,
+					"total_tokens":        totalTokens(c.usage),
+					"total_cached_tokens": c.usage.CacheReadTokens,
+				},
+			},
+		}))
+		out = append(out, sse.Event{Event: "done", Data: []byte("[DONE]")})
 	}
 	return out, nil
 }
 
+// ensureInteractionsStart opens the downstream Interactions SSE stream.
+func (c *StreamConverter) ensureInteractionsStart() ([]sse.Event, error) {
+	if c.started {
+		return nil, nil
+	}
+	c.started = true
+	return []sse.Event{interactionsEvent("interaction.created", map[string]any{
+		"interaction": map[string]any{
+			"id": responseID(c.id, APIInteractions), "object": "interaction",
+			"status": "in_progress", "model": c.Model,
+		},
+	})}, nil
+}
+
+// closeInteractionsTextStep closes the open model_output step, if any.
+func (c *StreamConverter) closeInteractionsTextStep() []sse.Event {
+	if !c.interactTextOpen {
+		return nil
+	}
+	c.interactTextOpen = false
+	return []sse.Event{interactionsEvent("step.stop", map[string]any{"index": c.interactTextStep})}
+}
+
+// closeInteractionsToolSteps closes every tool step that is still open, in
+// ascending step order.
+func (c *StreamConverter) closeInteractionsToolSteps() []sse.Event {
+	if len(c.interactOpenSteps) == 0 {
+		return nil
+	}
+	var idxs []int
+	for idx := range c.interactOpenSteps {
+		idxs = append(idxs, idx)
+	}
+	sort.Ints(idxs)
+	out := make([]sse.Event, 0, len(idxs))
+	for _, idx := range idxs {
+		delete(c.interactOpenSteps, idx)
+		out = append(out, interactionsEvent("step.stop", map[string]any{"index": idx}))
+	}
+	return out
+}
+
+// interactionsStatus derives the terminal Interaction status from the IR state.
+func (c *StreamConverter) interactionsStatus() string {
+	if len(c.tools) > 0 {
+		return "requires_action"
+	}
+	if c.finish == "length" {
+		return "incomplete"
+	}
+	return "completed"
+}
+
 func (c *StreamConverter) toolCallsSlice() []ToolCall {
-	out := make([]ToolCall, 0, len(c.tools))
-	for i := 0; i < c.nextTool; i++ {
+	// Sort by index so the order matches the upstream call order regardless of
+	// whether the indices came from the converter (nextTool) or the wire
+	// payload (chat tool_calls carry their own index).
+	idxs := make([]int, 0, len(c.tools))
+	for i := range c.tools {
+		idxs = append(idxs, i)
+	}
+	sort.Ints(idxs)
+	out := make([]ToolCall, 0, len(idxs))
+	for _, i := range idxs {
 		if t, ok := c.tools[i]; ok {
 			out = append(out, *t)
 		}
@@ -693,4 +1058,12 @@ func (c *StreamConverter) ToolCalls() []ToolCall { return c.toolCallsSlice() }
 func eventJSON(name string, payload any) sse.Event {
 	b, _ := json.Marshal(payload)
 	return sse.Event{Event: name, Data: b}
+}
+
+// interactionsEvent builds one Google Gemini Interactions SSE event. The
+// Interactions API duplicates the event name inside the data payload as
+// `event_type`, in addition to the SSE `event:` field.
+func interactionsEvent(name string, payload map[string]any) sse.Event {
+	payload["event_type"] = name
+	return eventJSON(name, payload)
 }

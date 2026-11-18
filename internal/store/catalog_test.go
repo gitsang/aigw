@@ -225,3 +225,37 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+func TestNormalizeAuthTypeKeepsGoogleScheme(t *testing.T) {
+	// The provider form offers x-goog-api-key for Gemini. Normalization must not
+	// rewrite it to bearer, otherwise upstream calls use the wrong auth header.
+	for _, tt := range []struct{ in, want string }{
+		{"x-goog-api-key", "x-goog-api-key"},
+		{"x-api-key", "x-api-key"},
+		{"none", "none"},
+		{"bearer", "bearer"},
+		{"", "bearer"},
+		{"something-else", "bearer"},
+	} {
+		if got := normalizeAuthType(tt.in); got != tt.want {
+			t.Fatalf("normalizeAuthType(%q)=%q want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestDefaultProtocolsIncludeInteractions(t *testing.T) {
+	got := DefaultProtocols()
+	if !equalStrings(got, []string{APIChatCompletions, APIResponses, APIMessages, APIInteractions}) {
+		t.Fatalf("DefaultProtocols()=%v", got)
+	}
+	if ep := DefaultEndpoint(APIInteractions); ep != "/v1beta/interactions" {
+		t.Fatalf("DefaultEndpoint(interactions)=%q", ep)
+	}
+	if got := DefaultAPISchema(); !got[APIInteractions].Enabled {
+		t.Fatalf("default schema must enable interactions: %v", got)
+	}
+	// interactions must be the last fallback, never displacing the others.
+	if protocols := DefaultAPISchema().Protocols(); protocols[len(protocols)-1] != APIInteractions {
+		t.Fatalf("interactions must be the final fallback: %v", protocols)
+	}
+}

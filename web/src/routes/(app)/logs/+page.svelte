@@ -17,6 +17,7 @@
   import { api, fmtCost, fmtLatency, fmtNumber, fmtTime, fmtTimeOfDay } from '$lib/api';
   import { formatHourMinute } from '$lib/i18n/format.js';
   import { t } from '$lib/i18n/index.svelte.js';
+  import { apiSchemaLabel, API_PROTOCOLS } from '$lib/api-schema.js';
   import * as Card from '$lib/components/ui/card/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
@@ -41,7 +42,13 @@
     { value: '30d', labelKey: 'logs.range.30d' }
   ];
 
-  const API_TYPES = ['chat.completions', 'responses', 'messages'];
+  // Protocol filter. The stored value stays the raw backend protocol
+  // (`chat.completions`, …) while the label mirrors the rest of the console, so
+  // the closed trigger, the open option list and the table badge all agree.
+  const API_TYPE_ITEMS = $derived([
+    { value: '', label: t('logs.table.allApis') },
+    ...API_PROTOCOLS.map((protocol) => ({ value: protocol.value, label: protocol.label }))
+  ]);
 
   const chartConfig = $derived({
     requests: { label: t('logs.chart.requests'), color: 'var(--chart-2)' }
@@ -330,13 +337,13 @@
         />
       </InputGroup.Root>
 
-      <Select.Root type="single" bind:value={filters.api_type}>
+      <Select.Root type="single" bind:value={filters.api_type} items={API_TYPE_ITEMS}>
         <Select.Trigger class="w-full">
           <Select.Value placeholder={t('logs.table.allApis')} />
         </Select.Trigger>
         <Select.Content>
-          {#each API_TYPES as name (name)}
-            <Select.Item value={name} label={name}>{name}</Select.Item>
+          {#each API_TYPE_ITEMS as option (option.value)}
+            <Select.Item value={option.value} label={option.label}>{option.label}</Select.Item>
           {/each}
         </Select.Content>
       </Select.Root>
@@ -404,7 +411,9 @@
                   </div>
                 {/if}
               </Table.Cell>
-              <Table.Cell><StatusBadge tone="info">{log.api_type}</StatusBadge></Table.Cell>
+              <Table.Cell>
+                <StatusBadge tone="info">{apiSchemaLabel(log.api_type) || '—'}</StatusBadge>
+              </Table.Cell>
               <Table.Cell class="max-w-[130px]">
                 <div class="truncate text-[11px]">{log.app || '—'}</div>
                 <div class="truncate text-[10px] text-muted-foreground">

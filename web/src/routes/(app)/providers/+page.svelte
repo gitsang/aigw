@@ -58,6 +58,7 @@
   const AUTH_OPTIONS = [
     { value: 'bearer', labelKey: 'providers.basic.auth.bearer' },
     { value: 'x-api-key', labelKey: 'providers.basic.auth.xApiKey' },
+    { value: 'x-goog-api-key', labelKey: 'providers.basic.auth.xGoogApiKey' },
     { value: 'none', labelKey: 'providers.basic.auth.none' }
   ];
   const PROXY_OPTIONS = [
@@ -65,12 +66,29 @@
     { value: 'http', labelKey: 'providers.proxy.options.http' },
     { value: 'socks5', labelKey: 'providers.proxy.options.socks5' }
   ];
+  const BACKOFF_OPTIONS = [
+    { value: 'exponential', labelKey: 'providers.request.backoffExponential' },
+    { value: 'linear', labelKey: 'providers.request.backoffLinear' }
+  ];
   const TABS = [
     { value: 'basic', labelKey: 'providers.tabs.basic', icon: ServerIcon },
     { value: 'request', labelKey: 'providers.tabs.request', icon: RepeatIcon },
     { value: 'proxy', labelKey: 'providers.tabs.proxy', icon: GlobeIcon },
     { value: 'models', labelKey: 'providers.tabs.models', icon: BoxIcon }
   ];
+
+  // The same `{ value, label }` pair feeds both `Select.Root items` (which lets
+  // bits-ui render the closed trigger from data) and the option list, so the
+  // trigger and the opened menu can never disagree, and both follow the locale.
+  const authItems = $derived(
+    AUTH_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }))
+  );
+  const proxyItems = $derived(
+    PROXY_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }))
+  );
+  const backoffItems = $derived(
+    BACKOFF_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }))
+  );
 
   let providers = $state([]);
   let loading = $state(true);
@@ -448,14 +466,14 @@
               </div>
               <div class="grid gap-1.5">
                 <Label for="p-auth">{t('providers.basic.authType')}</Label>
-                <Select.Root type="single" bind:value={form.auth_type}>
+                <Select.Root type="single" bind:value={form.auth_type} items={authItems}>
                   <Select.Trigger class="w-full" id="p-auth">
                     <Select.Value placeholder={t('providers.basic.authPlaceholder')} />
                   </Select.Trigger>
                   <Select.Content>
-                    {#each AUTH_OPTIONS as option (option.value)}
-                      <Select.Item value={option.value} label={t(option.labelKey)}>
-                        {t(option.labelKey)}
+                    {#each authItems as option (option.value)}
+                      <Select.Item value={option.value} label={option.label}>
+                        {option.label}
                       </Select.Item>
                     {/each}
                   </Select.Content>
@@ -594,20 +612,16 @@
                 </div>
                 <div class="grid gap-1.5">
                   <Label for="p-backoff">{t('providers.request.backoff')}</Label>
-                  <Select.Root type="single" bind:value={form.retry_backoff}>
+                  <Select.Root type="single" bind:value={form.retry_backoff} items={backoffItems}>
                     <Select.Trigger class="w-full" id="p-backoff">
-                      <Select.Value placeholder={t('providers.request.backoffPlaceholder')} />
+                      <Select.Value placeholder={backoffItems[0]?.label} />
                     </Select.Trigger>
                     <Select.Content>
-                      <Select.Item
-                        value="exponential"
-                        label={t('providers.request.backoffExponential')}
-                      >
-                        {t('providers.request.backoffExponential')}
-                      </Select.Item>
-                      <Select.Item value="linear" label={t('providers.request.backoffLinear')}>
-                        {t('providers.request.backoffLinear')}
-                      </Select.Item>
+                      {#each backoffItems as option (option.value)}
+                        <Select.Item value={option.value} label={option.label}>
+                          {option.label}
+                        </Select.Item>
+                      {/each}
                     </Select.Content>
                   </Select.Root>
                 </div>
@@ -657,14 +671,14 @@
             <div class="grid gap-3 sm:grid-cols-2">
               <div class="grid gap-1.5">
                 <Label for="p-proxy-type">{t('providers.proxy.type')}</Label>
-                <Select.Root type="single" bind:value={form.proxy_type}>
+                <Select.Root type="single" bind:value={form.proxy_type} items={proxyItems}>
                   <Select.Trigger class="w-full" id="p-proxy-type">
-                    <Select.Value placeholder={t('providers.proxy.options.none')} />
+                    <Select.Value placeholder={proxyItems[0]?.label} />
                   </Select.Trigger>
                   <Select.Content>
-                    {#each PROXY_OPTIONS as option (option.value)}
-                      <Select.Item value={option.value} label={t(option.labelKey)}>
-                        {t(option.labelKey)}
+                    {#each proxyItems as option (option.value)}
+                      <Select.Item value={option.value} label={option.label}>
+                        {option.label}
                       </Select.Item>
                     {/each}
                   </Select.Content>

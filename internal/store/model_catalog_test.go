@@ -55,8 +55,8 @@ func TestCatalogSchemaForProviderModel(t *testing.T) {
 	if got := ResolveAPISchema(nil, schema([]string{APIMessages}, nil)).Protocols(); len(got) != 1 || got[0] != APIMessages {
 		t.Fatalf("provider schema should be inherited: %v", got)
 	}
-	if got := ResolveAPISchema(nil, nil); len(got) != 3 {
-		t.Fatalf("built-in defaults expected: %v", got)
+	if got := ResolveAPISchema(nil, nil).Protocols(); !equalStrings(got, DefaultProtocols()) {
+		t.Fatalf("built-in defaults expected %v, got %v", DefaultProtocols(), got)
 	}
 }
 

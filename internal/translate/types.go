@@ -8,6 +8,9 @@ const (
 	APIChat      = "chat.completions"
 	APIResponses = "responses"
 	APIMessages  = "messages"
+	// APIInteractions is the Google Gemini Interactions API, the fourth
+	// protocol the gateway translates to and from.
+	APIInteractions = "interactions"
 )
 
 type ToolFunction struct {
@@ -49,6 +52,10 @@ type Request struct {
 	ResponseFormat     any
 	Metadata           map[string]string
 	StreamIncludeUsage bool
+	// PreviousInteractionID and Store are only meaningful for the Google
+	// Gemini Interactions API. Other protocols ignore both fields.
+	PreviousInteractionID string
+	Store                 bool
 }
 
 type Usage struct {
