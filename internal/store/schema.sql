@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS providers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL UNIQUE,
     base_url TEXT NOT NULL,
-    auth_type TEXT NOT NULL DEFAULT 'bearer' CHECK (auth_type IN ('bearer', 'x-api-key', 'none')),
+    auth_type TEXT NOT NULL DEFAULT 'bearer' CHECK (auth_type IN ('bearer', 'x-api-key', 'x-goog-api-key', 'none')),
     api_key_ciphertext TEXT NOT NULL DEFAULT '',
     api_key_last4 TEXT NOT NULL DEFAULT '',
     headers JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -16,6 +16,13 @@ CREATE TABLE IF NOT EXISTS providers (
 ALTER TABLE providers ADD COLUMN IF NOT EXISTS api_schema JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE providers DROP COLUMN IF EXISTS input_price_per_million;
 ALTER TABLE providers DROP COLUMN IF EXISTS output_price_per_million;
+
+-- The Google Interactions API authenticates with an x-goog-api-key header.
+-- Widen the auth_type allow-list on existing deployments; CREATE TABLE above
+-- already carries the new list for fresh databases.
+ALTER TABLE providers DROP CONSTRAINT IF EXISTS providers_auth_type_check;
+ALTER TABLE providers ADD CONSTRAINT providers_auth_type_check
+    CHECK (auth_type IN ('bearer', 'x-api-key', 'x-goog-api-key', 'none'));
 
 -- ------------------------------------------- legacy "route" → "virtual model"
 -- The console's configuration entity used to be called a routing rule / route.
