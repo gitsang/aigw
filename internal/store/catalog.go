@@ -13,7 +13,7 @@ import (
 // IsSupportedAPIType reports whether name is a known upstream protocol.
 func IsSupportedAPIType(name string) bool {
 	switch name {
-	case APIChatCompletions, APIResponses, APIMessages:
+	case APIChatCompletions, APIResponses, APIMessages, APIInteractions:
 		return true
 	}
 	return false
@@ -49,7 +49,7 @@ func DefaultAPISchema() APISchema {
 }
 
 // Protocols returns the enabled protocols of the schema in canonical fallback
-// order chat.completions → responses → messages.
+// order chat.completions → responses → messages → interactions.
 func (s APISchema) Protocols() []string {
 	out := make([]string, 0, len(s))
 	for _, name := range DefaultProtocols() {
@@ -95,14 +95,14 @@ func normalizeAPISchema(in APISchema) (APISchema, error) {
 //
 // Protocol support replaces wholesale: a non-empty model schema defines the set
 // of protocols the model speaks, otherwise the provider schema does, otherwise
-// all three are enabled. Endpoints fall back per protocol: model → provider →
-// built-in default.
+// all built-in protocols are enabled. Endpoints fall back per protocol: model →
+// provider → built-in default.
 func ResolveAPISchema(model, provider APISchema) APISchema {
 	support := model
 	if len(support) == 0 {
 		support = provider
 	}
-	out := make(APISchema, 3)
+	out := make(APISchema, len(DefaultProtocols()))
 	for _, name := range DefaultProtocols() {
 		enabled := true
 		if len(support) > 0 {
@@ -139,7 +139,8 @@ func ResolveAPISchema(model, provider APISchema) APISchema {
 // The upstream protocol is not configurable per target: an inbound request is
 // forwarded with the protocol it arrived on whenever the upstream speaks it.
 // Otherwise the gateway falls back in the fixed order chat.completions →
-// responses → messages and takes the first protocol the upstream supports,
+// responses → messages → interactions and takes the first protocol the
+// upstream supports,
 // translating the payload as needed. An empty inbound protocol (used by the
 // health prober) takes that same first protocol.
 func ChooseUpstreamAPIType(schema APISchema, inbound string) string {

@@ -180,6 +180,14 @@ func TestNormalizeAPISchema(t *testing.T) {
 		t.Fatalf("disabled entry must stay disabled")
 	}
 
+	// interactions is a first-class protocol: schemas mentioning it must be
+	// accepted, not rejected as an unknown protocol.
+	if got, err := normalizeAPISchema(APISchema{APIInteractions: {Enabled: true}}); err != nil {
+		t.Fatalf("interactions schema should be accepted, got %v", err)
+	} else if got[APIInteractions].Endpoint != "" {
+		t.Fatalf("endpoint should stay unset, got %q", got[APIInteractions].Endpoint)
+	}
+
 	if _, err := normalizeAPISchema(APISchema{"bogus": {Enabled: true}}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("unknown protocol should be rejected, got %v", err)
 	}
